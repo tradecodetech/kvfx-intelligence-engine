@@ -1165,12 +1165,13 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
         },
       ]);
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "Connection issue — please try again. If the problem persists, check your internet connection.",
+          content: `Error: ${errMsg}`,
           assistantMode: "chat",
           timestamp: new Date(),
         },
