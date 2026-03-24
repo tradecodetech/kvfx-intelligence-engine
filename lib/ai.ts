@@ -1,0 +1,267 @@
+/**
+ * AI Layer — OpenAI integration with KVFX system prompt injection
+ * Supports: chat, chart analysis (vision), trade review, thesis alignment
+ */
+
+import OpenAI from "openai";
+import {
+  buildKVFXPromptContext,
+  buildThesisPromptBlock,
+  getModeSystemAddition,
+  generateTradeInsight,
+  type TradingMode,
+  type AssistantMode,
+  type ThesisContext,
+} from "./tradingLogic";
+
+// Lazy-initialize so the client is only created at runtime (not during build)
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return _openai;
+}
+
+// ---------------------------------------------------------
+// Base System Prompt (shared across all modes)
+// ---------------------------------------------------------
+
+const KVFX_BASE_PROMPT = `You are the KVFX Intelligence Engine — a trade intelligence assistant powered by WhisperZonez zone logic and KVFX Algo v3 structure methodology.
+
+You are NOT a signals engine. You do NOT generate buy/sell alerts or forced entries.
+You provide intelligence, framework, and context. Execution is always handled by the trader using WhisperZonez and KVFX v3 tools.
+
+Your methodology hierarchy:
+  BIAS → REFERENCE ZONE → LIQUIDITY → CONFIRMATION → EXECUTION
+
+Core principles:
+1. Never call an entry — identify conditions under which entry would be valid
+2. Respect higher timeframe structure above all else
+3. Identify liquidity pools before any zone interaction — price hunts liquidity first
+4. Call out when a user is forcing, chasing, or emotionally trading
+5. Emphasize the power of NOT trading in low-quality conditions
+6. Always ask: "Is this the setup, or am I making it the setup?"
+
+WhisperZonez zone logic:
+- Zones are areas of significant supply/demand, not just lines
+- Zone strength: multiple touches + time at level + how price left the zone
+- Premium zones = supply above current price (above equilibrium)
+- Discount zones = demand below current price (below equilibrium)
+- Liquidity lives above equal highs and below equal lows — price sweeps it before moving
+
+KVFX Algo v3 structure rules:
+- Directional bias must be confirmed on at least one higher timeframe
+- Structure confirmation required before any execution consideration
+- Scalping: M5-M15 structure + 1–5 confirmation signals
+- Swing: H1-H4 structure + 3–7 confirmation signals
+- Macro: Daily/Weekly structure + 5+ confirmation signals
+
+Communication style:
+- Speak like a calm, experienced trading mentor — never hype, never fear
+- Be direct but never arrogant
+- If a user is clearly emotional or forcing trades, gently but firmly redirect
+- You are speaking to traders, not beginners — use technical terms naturally
+
+What you will NOT do:
+- Generate buy/sell signals or specific entry calls
+- Confirm a user's bias just to please them
+- Pretend certainty where there is none
+- Claim to see exact indicator values or precise price levels unless clearly provided
+- Give financial advice — you provide educational analysis only
+
+When a user describes a specific setup (pair + structure or pair + bias), always end your response with this EXACT intelligence block:
+
+PLAN:
+• REFERENCE ZONE: [key supply or demand area — price range or description]
+• LIQUIDITY: [where stops cluster or where price may sweep before moving]
+• INVALIDATION: [what price action or close breaks the bias]
+• EXPECTATION: [what to anticipate if bias holds — e.g. rejection → continuation]
+• EXECUTION: Use WhisperZonez + KVFX v3 confirmation for entry timing
+
+Keep each item concise (one line). If the setup is not actionable, state that clearly — but still include the block showing what conditions would make it valid.`;
+
+
+
+// ---------------------------------------------------------
+// Types
+// ---------------------------------------------------------
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface ChatRequestContext {
+  message: string;
+  conversationHistory: ChatMessage[];
+  tradingMode: TradingMode;
+  assistantMode: AssistantMode;
+  imageBase64?: string;
+  thesisContext?: ThesisContext;
+  timeframe?: string;
+  tradingSession?: string;
+  memoryContext?: string;
+  scanMode?: boolean;
+  scanPromptOverride?: string;
+}
+
+export interface AIResponse {
+  content: string;
+  insight?: ReturnType<typeof generateTradeInsight>;
+}
+
+// ---------------------------------------------------------
+// Main Response Generator
+// ---------------------------------------------------------
+
+export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIResponse> {
+  const {
+    message,
+    conversationHistory,
+    tradingMode,
+    assistantMode,
+    imageBase64,
+    thesisContext,
+    timeframe,
+    tradingSession,
+    memoryContext,
+    scanMode,
+    scanPromptOverride,
+  } = ctx;
+
+  // ── Scan mode: structured output, no insight decoration ──────────────────
+  if (scanMode && scanPromptOverride) {
+    const completion = await getOpenAI().chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: scanPromptOverride },
+        { role: "user", content: message || "Run full market scan." },
+      ],
+      temperature: 0.2,
+      max_tokens: 2500,
+    });
+    const content = completion.choices[0]?.message?.content ?? "Scan failed.";
+    return { content };
+  }
+
+  // Generate KVFX insight from text (skip if image-only with no text)
+  const textForAnalysis = message || (imageBase64 ? "chart image provided for analysis" : "");
+  const insight = generateTradeInsight({ description: textForAnalysis, mode: tradingMode });
+  const kvfxContext = buildKVFXPromptContext(insight, tradingMode);
+
+  // Build mode-specific system addition
+  const modeAddition = getModeSystemAddition(assistantMode);
+
+  // Build optional context blocks
+  const thesisBlock = thesisContext && hasThesisContent(thesisContext)
+    ? buildThesisPromptBlock(thesisContext)
+    : "";
+
+  const sessionBlock = buildSessionBlock(timeframe, tradingSession);
+
+  // Assemble full system prompt
+  const systemParts = [
+    KVFX_BASE_PROMPT,
+    `\n[ACTIVE ASSISTANT MODE: ${assistantMode.toUpperCase().replace("-", " ")}]\n${modeAddition}`,
+    thesisBlock ? `\n${thesisBlock}` : "",
+    sessionBlock ? `\n${sessionBlock}` : "",
+    memoryContext ? `\n[RELEVANT PAST CONTEXT FROM MEMORY]\n${memoryContext}` : "",
+    `\n${kvfxContext}`,
+  ].filter(Boolean);
+
+  const fullSystemPrompt = systemParts.join("\n");
+
+  // Build conversation history (text-only for history)
+  const historyMessages: OpenAI.ChatCompletionMessageParam[] = conversationHistory
+    .slice(-10)
+    .map((msg) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content,
+    }));
+
+  // Build current user message (may include image)
+  const userContent = buildUserContent(message, imageBase64, assistantMode);
+
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    { role: "system", content: fullSystemPrompt },
+    ...historyMessages,
+    { role: "user", content: userContent },
+  ];
+
+  const completion = await getOpenAI().chat.completions.create({
+    model: "gpt-4o", // gpt-4o supports vision natively
+    messages,
+    temperature: assistantMode === "chat" ? 0.5 : 0.35,
+    max_tokens: assistantMode === "chart" || assistantMode === "trade-review" ? 1000 : 800,
+    presence_penalty: 0.1,
+    frequency_penalty: 0.1,
+  });
+
+  const content = completion.choices[0]?.message?.content ?? "No response generated.";
+  return { content, insight };
+}
+
+// ---------------------------------------------------------
+// Embedding (unchanged)
+// ---------------------------------------------------------
+
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const response = await getOpenAI().embeddings.create({
+    model: "text-embedding-3-small",
+    input: text,
+  });
+  return response.data[0].embedding;
+}
+
+// ---------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------
+
+function buildUserContent(
+  message: string,
+  imageBase64: string | undefined,
+  assistantMode: AssistantMode
+): string | OpenAI.ChatCompletionContentPart[] {
+  if (!imageBase64) {
+    return message || "Please analyze the current market context.";
+  }
+
+  const parts: OpenAI.ChatCompletionContentPart[] = [
+    {
+      type: "image_url",
+      image_url: {
+        url: imageBase64,
+        detail: "high",
+      },
+    },
+  ];
+
+  const imageContext =
+    assistantMode === "chart"
+      ? "Please analyze this chart screenshot using WhisperZonez zone logic and KVFX Algo v3 principles."
+      : assistantMode === "trade-review"
+      ? "Please review this chart as part of my trade review."
+      : "Chart image attached for reference.";
+
+  const textContent = message
+    ? `${message}\n\n[${imageContext}]`
+    : imageContext;
+
+  parts.push({ type: "text", text: textContent });
+
+  return parts;
+}
+
+function buildSessionBlock(timeframe?: string, session?: string): string {
+  if (!timeframe && !session) return "";
+  const parts: string[] = ["[ACTIVE TRADING CONTEXT]"];
+  if (timeframe) parts.push(`Timeframe: ${timeframe}`);
+  if (session) parts.push(`Session: ${session}`);
+  parts.push("Factor this context into your analysis timeframe and execution windows.");
+  return parts.join("\n");
+}
+
+function hasThesisContent(thesis: ThesisContext): boolean {
+  return Object.values(thesis).some((v) => v !== "" && v !== undefined);
+}

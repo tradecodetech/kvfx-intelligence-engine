@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --bg-panel: #1e293b;
+  --bg-card: #1e293b;
+  --bg-hover: #334155;
+  --border: #475569;
+  --border-active: #64748b;
+  --accent: #c9a84c;
+  --accent-dim: rgba(201, 168, 76, 0.15);
+  --accent-border: rgba(201, 168, 76, 0.35);
 }
 
 @theme inline {
@@ -12,15 +20,65 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* ── Selection ─────────────────────────────────────────── */
+::selection {
+  background-color: rgba(201, 168, 76, 0.18);
+  color: #e4eaf5;
+}
+
+/* ── Focus ring ────────────────────────────────────────── */
+:focus-visible {
+  outline: 1px solid rgba(201, 168, 76, 0.5);
+  outline-offset: 2px;
+}
+
+/* ── Animations ────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    #1a2540 25%,
+    #253650 50%,
+    #1a2540 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+/* ── Textarea reset ───────────────────────────────────── */
+textarea {
+  field-sizing: content;
 }

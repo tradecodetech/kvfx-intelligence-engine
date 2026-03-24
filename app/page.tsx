@@ -1,65 +1,104 @@
-import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+export default function HomePage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center px-4 relative overflow-hidden">
+      {/* Background grid */}
+      <div
+        className="absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage: `linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)`,
+          backgroundSize: "40px 40px",
+        }}
+      />
+
+      <div className="relative z-10 max-w-2xl w-full text-center space-y-8">
+        {/* Logo */}
+        <div className="flex items-center justify-center gap-3 mb-2">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-xl font-black shadow-lg shadow-blue-500/20">
+            KV
+          </div>
+        </div>
+
+        {/* Title */}
+        <div>
+          <h1 className="text-4xl sm:text-5xl font-black tracking-tight leading-tight">
+            WhisperZonez
+            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-violet-400">
+              Assistant
+            </span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+          <p className="mt-3 text-zinc-400 text-lg font-mono">KVFX Intelligence Engine v3</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* Methodology */}
+        <div className="flex items-center justify-center gap-2 text-sm font-mono flex-wrap">
+          {["BIAS", "→", "ZONE", "→", "CONFIRMATION", "→", "EXECUTION"].map((word, i) => (
+            <span
+              key={i}
+              className={
+                word === "→"
+                  ? "text-zinc-600"
+                  : "text-zinc-300 bg-zinc-800 px-2 py-1 rounded border border-zinc-700"
+              }
+            >
+              {word}
+            </span>
+          ))}
         </div>
-      </main>
-    </div>
+
+        {/* Feature cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
+          {[
+            {
+              icon: "◈",
+              title: "WhisperZonez",
+              desc: "Supply, demand, and liquidity zone analysis with structure detection",
+              color: "text-emerald-400",
+            },
+            {
+              icon: "⟁",
+              title: "KVFX Algo v3",
+              desc: "Signal alignment scoring, directional bias, and entry timing logic",
+              color: "text-blue-400",
+            },
+            {
+              icon: "◉",
+              title: "3 Trading Modes",
+              desc: "Scalping, Swing, and Macro — each with tuned confirmation strictness",
+              color: "text-violet-400",
+            },
+          ].map((item) => (
+            <div
+              key={item.title}
+              className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-colors"
+            >
+              <div className={`text-xl mb-2 ${item.color}`}>{item.icon}</div>
+              <h3 className="font-bold text-sm mb-1">{item.title}</h3>
+              <p className="text-zinc-500 text-xs leading-relaxed">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <div>
+          <Link
+            href="/assistant"
+            className="inline-flex items-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all hover:shadow-lg hover:shadow-blue-500/25 text-sm"
+          >
+            Open Intelligence Engine
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+        </div>
+
+        {/* Disclaimer */}
+        <p className="text-zinc-600 text-xs leading-relaxed max-w-md mx-auto">
+          Educational trading analysis tool only. Not financial advice.
+          Trade your own plan. Past signals do not guarantee future results.
+        </p>
+      </div>
+    </main>
   );
 }
