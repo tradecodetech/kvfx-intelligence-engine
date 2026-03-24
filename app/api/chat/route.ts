@@ -1,5 +1,15 @@
 /**
  * /api/chat — KVFX Intelligence Engine API Route
+ *
+ * Routing architecture:
+ *   COMMAND PATH  — keyword-triggered actions (scan, bias board, etc.)
+ *                   Runs immediately after validation, before any async enrichment.
+ *                   Bypasses: memory retrieval, pair detection, live price, structure
+ *                   analysis, intelligence card, auto trade logging.
+ *
+ *   ANALYSIS PATH — descriptive inputs that contain pair / bias / structure context.
+ *                   Runs the full pipeline: memory, pair+price, structure insight,
+ *                   intelligence card, auto logging.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,13 +26,8 @@ import { supabase } from "@/lib/supabase";
 import { parseTradeFromText, detectResultUpdate } from "@/lib/tradeParser";
 import { buildIntelligenceCard } from "@/lib/intelligenceEngine";
 import { isScanCommand, buildScanPrompt, parseScanResponse } from "@/lib/scanEngine";
-import { fetchLivePrice } from "@/lib/priceApi";
-import {
-  isPairAllowedForTier,
-  buildLockedPairMessage,
-  filterAllowedPairs,
-  getScanPairsForTier,
-} from "@/lib/tierConfig";
+import { fetchLivePrice, fetchLivePricesForScan } from "@/lib/priceApi";
+import { getScanPairsForTier } from "@/lib/tierConfig";
 import { detectPair } from "@/lib/tradeParser";
 import { createClient as createSupabaseServer } from "@/lib/supabase/server";
 
@@ -34,9 +39,7 @@ const VALID_ASSISTANT_MODES = ["chat", "chart", "trade-review", "thesis"];
 
 export async function POST(req: NextRequest) {
   try {
-    // ------------------------
-    // AUTH CHECK
-    // ------------------------
+    // ── AUTH ──────────────────────────────────────────────────────────────────
     const supabaseAuth = await createSupabaseServer();
     const { data: { user } } = await supabaseAuth.auth.getUser();
 
@@ -47,7 +50,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch user tier (default to "beta" if no profile row yet)
     const { data: profile } = await supabaseAuth
       .from("user_profiles")
       .select("tier")
@@ -57,6 +59,7 @@ export async function POST(req: NextRequest) {
     const userTier = (profile?.tier as "beta" | "pro") ?? "beta";
     const authedUserId = user.id;
 
+    // ── BODY PARSING ──────────────────────────────────────────────────────────
     const body = await req.json();
 
     const {
@@ -69,11 +72,10 @@ export async function POST(req: NextRequest) {
       timeframe,
       tradingSession,
       isTradeInsight = false,
+      commandHint = false,
     } = body;
 
-    // ------------------------
-    // VALIDATION
-    // ------------------------
+    // ── VALIDATION ────────────────────────────────────────────────────────────
     const hasMessage =
       message && typeof message === "string" && message.trim().length > 0;
 
@@ -108,18 +110,136 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ------------------------
-    // SESSION HANDLING
-    // ------------------------
-    let session = sessionId ? await getSession(sessionId) : null;
+    // ── COMMAND DETECTION ─────────────────────────────────────────────────────
+    // Runs immediately after validation — before session, memory, pair detection,
+    // or any structure analysis. Commands are keyword-triggered actions that do
+    // not carry pair / bias / timeframe context and must never be routed through
+    // the structure pipeline (which would produce low-alignment noise responses).
+    // commandHint = client-side pre-check that runs before JSON serialization.
+    // Acts as a fallback when Unicode non-breaking spaces from mobile keyboards
+    // cause isScanCommand to return false on the server-side string.
+    const isCommand = hasMessage && (commandHint === true || isScanCommand(message));
 
+    // Diagnostic log — visible in the Next.js terminal on every request.
+    // Shows the raw message bytes so Unicode space issues become obvious.
+    // Remove once mobile command routing is confirmed stable.
+    console.log("[ROUTE] incoming:", JSON.stringify({
+      message: message.slice(0, 80),
+      messageBytes: [...message.slice(0,30)].map(c => c.charCodeAt(0).toString(16)).join(" "),
+      commandHint,
+      isScanResult: isScanCommand(message),
+      isCommand,
+      assistantMode,
+    }));
+
+    // ── SESSION ───────────────────────────────────────────────────────────────
+    // Shared by both paths — maintains conversation continuity.
+    let session = sessionId ? await getSession(sessionId) : null;
     if (!session) {
       session = await createSession(authedUserId, tradingMode);
     }
 
-    // ------------------------
+    // ═════════════════════════════════════════════════════════════════════════
+    // COMMAND PATH
+    // No memory retrieval. No pair detection. No structure analysis.
+    // Dispatches directly to the scan engine with the appropriate prompt.
+    // ═════════════════════════════════════════════════════════════════════════
+    if (isCommand) {
+      const scanPairs = getScanPairsForTier(userTier);
+
+      // Fetch live prices for all scan pairs in parallel — no cache, no-store —
+      // before building the prompt so the AI receives current price levels.
+      let scanLivePrices: Record<string, number | null> = {};
+      try {
+        scanLivePrices = await fetchLivePricesForScan(scanPairs);
+      } catch (err) {
+        console.warn("⚠️ Scan price fetch failed — continuing without prices:", err);
+      }
+
+      const scanPrompt = buildScanPrompt(message, tradingMode, scanPairs, scanLivePrices);
+
+      const { content } = await generateChatResponse({
+        message: message.trim(),
+        conversationHistory: session.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        tradingMode,
+        assistantMode,
+        scanMode: true,
+        scanPromptOverride: scanPrompt,
+      });
+
+      // Parse structured scan output
+      let scanResults = null;
+      try {
+        scanResults = parseScanResponse(content);
+        if (scanResults) {
+          console.log(
+            `📡 SCAN COMPLETE: ${scanResults.pairsScanned.length} pairs — top: ${scanResults.topPair}`
+          );
+        }
+      } catch (err) {
+        console.warn("⚠️ Scan parse failed:", err);
+      }
+
+      const storedUserMessage = message.trim();
+
+      // Session cache
+      try {
+        await Promise.all([
+          appendToSession(session.sessionId, "user", storedUserMessage),
+          appendToSession(session.sessionId, "assistant", content),
+        ]);
+      } catch (err) {
+        console.warn("⚠️ Session cache skipped:", err);
+      }
+
+      // Chat log
+      try {
+        await supabase.from("chat_logs").insert([
+          {
+            session_id: session.sessionId,
+            user_id: authedUserId,
+            role: "user",
+            content: storedUserMessage,
+            mode: assistantMode,
+          },
+          {
+            session_id: session.sessionId,
+            user_id: authedUserId,
+            role: "assistant",
+            content,
+            mode: assistantMode,
+          },
+        ]);
+      } catch (err) {
+        console.warn("⚠️ Chat logging failed:", err);
+      }
+
+      console.log("[COMMAND]", JSON.stringify({
+        command: message.trim().slice(0, 60),
+        tradingMode,
+        pairs: scanResults?.pairsScanned ?? [],
+      }));
+
+      return NextResponse.json({
+        content,
+        sessionId: session.sessionId,
+        scanResults: scanResults ?? null,
+        livePrice: null,
+        scanPrices: scanLivePrices,
+        intelligenceCard: null,
+        insight: null,
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ANALYSIS PATH
+    // Full pipeline for descriptive requests carrying pair / bias / structure.
+    // ═════════════════════════════════════════════════════════════════════════
+
     // MEMORY CONTEXT
-    // ------------------------
     let memoryContext = "";
     try {
       if (hasMessage) {
@@ -129,37 +249,19 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Memory retrieval skipped:", err);
     }
 
-    // ------------------------
-    // SCAN DETECTION
-    // ------------------------
-    const isScan = hasMessage && isScanCommand(message);
-
-    // ------------------------
-    // TIER GATE
-    // Non-scan messages: block locked pairs immediately (no AI call).
-    // Scans: restrict pair list at prompt level.
-    // ------------------------
-    if (hasMessage && !isScan) {
-      const requestedPair = detectPair(message);
-      if (requestedPair && !isPairAllowedForTier(requestedPair, userTier)) {
-        console.log(`🔒 TIER GATE: ${requestedPair} blocked — ${userTier} tier`);
-        return NextResponse.json({
-          content: buildLockedPairMessage(requestedPair),
-          sessionId: session.sessionId,
-          scanResults: null,
-          livePrice: null,
-          intelligenceCard: null,
-          insight: null,
-        });
+    // PAIR DETECTION + LIVE PRICE (before AI call)
+    // Fetch live price early so the AI receives the exact current price in context.
+    const prePair = hasMessage ? detectPair(message) : null;
+    let preLivePrice: number | null = null;
+    if (prePair) {
+      try {
+        preLivePrice = await fetchLivePrice(prePair);
+      } catch (err) {
+        console.warn("⚠️ Pre-AI live price fetch failed:", err);
       }
     }
 
-    // Scan pairs for this user's tier
-    const scanPairs = filterAllowedPairs(getScanPairsForTier(userTier));
-
-    // ------------------------
     // AI RESPONSE
-    // ------------------------
     const { content, insight } = await generateChatResponse({
       message: message.trim(),
       conversationHistory: session.messages.map((m) => ({
@@ -173,53 +275,31 @@ export async function POST(req: NextRequest) {
       timeframe,
       tradingSession,
       memoryContext,
-      ...(isScan && {
-        scanMode: true,
-        scanPromptOverride: buildScanPrompt(message, tradingMode, scanPairs),
-      }),
+      livePrice: preLivePrice,
+      detectedPair: prePair,
     });
 
-    // ------------------------
-    // BETA TEST MODE LOGGING
-    // ------------------------
+    // BETA LOGGING
     if (hasMessage) {
-      const { detectPair, detectBias } = await import("@/lib/tradeParser");
-      const detectedPair = detectPair(message);
+      const { detectBias } = await import("@/lib/tradeParser");
       const detectedBias = detectBias(message);
-      console.log("[BETA]", JSON.stringify({
-        command: message.trim().slice(0, 80),
-        isScan,
-        detectedPair: detectedPair ?? "—",
+      console.log("[ANALYSIS]", JSON.stringify({
+        message: message.trim().slice(0, 80),
+        detectedPair: prePair ?? "—",
         detectedBias: detectedBias ?? "—",
+        livePrice: preLivePrice ?? "—",
         confidence: insight?.alignmentScore ?? "—",
         mode: assistantMode,
         tradingMode,
       }));
     }
 
-    // ------------------------
-    // PARSE SCAN RESULTS
-    // ------------------------
-    let scanResults = null;
-    if (isScan) {
-      try {
-        scanResults = parseScanResponse(content);
-        if (scanResults) console.log(`📡 SCAN COMPLETE: ${scanResults.pairsScanned.length} pairs — top: ${scanResults.topPair}`);
-      } catch (err) {
-        console.warn("⚠️ Scan parse failed:", err);
-      }
-    }
-
-    // ------------------------
     // MESSAGE STORAGE
-    // ------------------------
     const storedUserMessage = hasImage
       ? `[Chart Image]${hasMessage ? ` — ${message.trim()}` : ""}`
       : message.trim();
 
-    // ------------------------
     // SESSION CACHE
-    // ------------------------
     try {
       await Promise.all([
         appendToSession(session.sessionId, "user", storedUserMessage),
@@ -229,9 +309,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Session cache skipped:", err);
     }
 
-    // ------------------------
     // MEMORY PIPELINE
-    // ------------------------
     try {
       await Promise.all([
         processAndStore(
@@ -257,9 +335,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Memory pipeline skipped:", err);
     }
 
-    // ------------------------
-    // CHAT LOGGING (SUPABASE)
-    // ------------------------
+    // CHAT LOGGING
     try {
       const { error } = await supabase.from("chat_logs").insert([
         {
@@ -273,11 +349,10 @@ export async function POST(req: NextRequest) {
           session_id: session.sessionId,
           user_id: authedUserId,
           role: "assistant",
-          content: content,
+          content,
           mode: assistantMode,
         },
       ]);
-
       if (error) {
         console.error("❌ FETCH ERROR (chat log):", error);
       } else {
@@ -287,10 +362,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Chat logging failed:", err);
     }
 
-    // ------------------------
     // AUTO RESULT UPDATE
-    // Detects "EURUSD TP hit" / "EURUSD stopped" → updates most recent open trade
-    // ------------------------
     if (hasMessage) {
       try {
         const resultUpdate = detectResultUpdate(message);
@@ -323,56 +395,32 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ------------------------
-    // PARSE TRADE SIGNAL (shared for both logging + intelligence card)
-    // Skip for scans — they are read-only analysis, not logged trades
-    // ------------------------
-    const parsed = hasMessage && !isScan
+    // PARSE TRADE SIGNAL
+    const parsed = hasMessage
       ? parseTradeFromText(message, content)
       : { pair: null, bias: null, rr: null, setup_type: null, session: null, timeframe: null, notes: content, isSignal: false };
 
-    // ------------------------
-    // LIVE PRICE FETCH
-    // Auto-fetch from TwelveData when pair detected but user gave no price.
-    // Skipped for scans (multi-pair) and when user already typed a price.
-    // ------------------------
-    let livePrice: number | null = null;
-    if (!isScan && parsed.pair && parsed.price === null) {
-      try {
-        livePrice = await fetchLivePrice(parsed.pair);
-      } catch (err) {
-        console.warn("⚠️ Live price fetch failed:", err);
-      }
-    }
+    const livePrice = preLivePrice;
 
-    // ------------------------
-    // BUILD INTELLIGENCE CARD (skip for scans — scan results take priority)
-    // ------------------------
+    // BUILD INTELLIGENCE CARD
     let intelligenceCard = null;
-    if (!isScan) {
-      try {
-        intelligenceCard = buildIntelligenceCard(
-          message,
-          content,
-          insight,
-          parsed.pair,
-          parsed.session || tradingSession || null,
-          parsed.timeframe || timeframe || null,
-          livePrice
-        );
-      } catch (err) {
-        console.warn("⚠️ Intelligence card build failed:", err);
-      }
+    try {
+      intelligenceCard = buildIntelligenceCard(
+        message,
+        content,
+        insight,
+        parsed.pair ?? prePair,
+        parsed.session || tradingSession || null,
+        parsed.timeframe || timeframe || null,
+        livePrice
+      );
+    } catch (err) {
+      console.warn("⚠️ Intelligence card build failed:", err);
     }
 
-    // ------------------------
     // AUTO TRADE LOGGING
-    // Smart extraction: pair, bias, RR, setup_type, session, timeframe
-    // Only logs when a meaningful signal is detected
-    // ------------------------
     try {
-
-      const shouldLog = !isScan && (insight != null || parsed.isSignal || intelligenceCard != null);
+      const shouldLog = insight != null || parsed.isSignal || intelligenceCard != null;
 
       if (shouldLog) {
         const pairFallback = (() => {
@@ -425,9 +473,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ KVFX trade logging failed:", err);
     }
 
-    // ------------------------
     // FALLBACK TRADE MEMORY
-    // ------------------------
     if (
       (isTradeInsight ||
         assistantMode === "trade-review" ||
@@ -449,13 +495,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ------------------------
     // RESPONSE
-    // ------------------------
     return NextResponse.json({
       content,
       sessionId: session.sessionId,
-      scanResults: scanResults ?? null,
+      scanResults: null,
       livePrice,
       intelligenceCard,
       insight: insight
@@ -483,7 +527,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: "KVFX Intelligence Engine — Online",
-    version: "3.4.0",
+    version: "3.5.0",
     tradingModes: ["scalping", "swing", "macro"],
     assistantModes: ["chat", "chart", "trade-review", "thesis"],
     capabilities: [

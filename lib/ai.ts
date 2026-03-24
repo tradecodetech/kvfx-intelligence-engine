@@ -79,7 +79,38 @@ PLAN:
 • EXPECTATION: [what to anticipate if bias holds — e.g. rejection → continuation]
 • EXECUTION: Use WhisperZonez + KVFX v3 confirmation for entry timing
 
-Keep each item concise (one line). If the setup is not actionable, state that clearly — but still include the block showing what conditions would make it valid.`;
+Keep each item concise (one line). If the setup is not actionable, state that clearly — but still include the block showing what conditions would make it valid.
+
+CRITICAL RULE — Never give a dead-end "cannot detect" response:
+If the user's message lacks enough context to complete the full analysis, do NOT say "unable to detect structure" or "need more information" as a standalone reply.
+Instead, provide whatever partial analysis is possible, then ask ONE specific clarifying question to get the missing piece.
+
+Examples of intelligent context requests:
+- Pair only, no bias: "What's your current bias on EURUSD — are you looking for a long or short?"
+- Pair + bias, no timeframe: "What timeframe are you trading this on — scalp (M5/M15), swing (H1/H4), or macro?"
+- Vague question, no pair: "Which pair or instrument are you analyzing?"
+- Setup described but no confirmation: "Have you seen HTF structure confirm this direction, or is this a lower timeframe read only?"
+- Price level mentioned with no context: "Is this an entry level, a zone you're watching, or current price?"
+
+Always move the conversation forward. A single clear question beats a generic "add more context" message every time.
+
+KVFX QUICK FORMAT:
+When a specific trading pair is identified in the user's message, ALWAYS begin your response with this exact quick format block on its own line, before any prose:
+
+**Pair:** [PAIR] | **Price:** [PRICE_OR_N/A] | **Bias:** [Long/Short/Neutral] | **Structure:** [e.g. Supply Rejection, Demand Sweep, BOS, CHoCH, FVG, etc.] | **Confidence:** [High/Medium/Low]
+
+**KVFX Read:** [1–2 sentences: what price is doing and what to watch for next]
+
+Then provide your full analysis followed by the PLAN block.
+
+Confidence rules:
+- High: Liquidity sweep + zone rejection + HTF structure all confirmed
+- Medium: Zone or structure present but missing full sweep or HTF confirmation
+- Low: Incomplete data, early-stage, or context forming
+- If no live price is available in context, use N/A for Price
+
+This quick header is REQUIRED whenever a pair is identified. Never skip it.`;
+
 
 
 
@@ -104,6 +135,8 @@ export interface ChatRequestContext {
   memoryContext?: string;
   scanMode?: boolean;
   scanPromptOverride?: string;
+  livePrice?: number | null;
+  detectedPair?: string | null;
 }
 
 export interface AIResponse {
@@ -128,6 +161,8 @@ export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIR
     memoryContext,
     scanMode,
     scanPromptOverride,
+    livePrice,
+    detectedPair,
   } = ctx;
 
   // ── Scan mode: structured output, no insight decoration ──────────────────
@@ -160,6 +195,11 @@ export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIR
 
   const sessionBlock = buildSessionBlock(timeframe, tradingSession);
 
+  // Build live price block — injected BEFORE AI call so the model uses the exact price
+  const livePriceBlock = (livePrice != null && detectedPair)
+    ? `[LIVE PRICE DATA — USE THIS EXACT PRICE]\nPair: ${detectedPair}\nCurrent Price: ${livePrice}\nDo NOT estimate or assume a different price. Use ${livePrice} in your **Price:** field.`
+    : "";
+
   // Assemble full system prompt
   const systemParts = [
     KVFX_BASE_PROMPT,
@@ -167,6 +207,7 @@ export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIR
     thesisBlock ? `\n${thesisBlock}` : "",
     sessionBlock ? `\n${sessionBlock}` : "",
     memoryContext ? `\n[RELEVANT PAST CONTEXT FROM MEMORY]\n${memoryContext}` : "",
+    livePriceBlock ? `\n${livePriceBlock}` : "",
     `\n${kvfxContext}`,
   ].filter(Boolean);
 

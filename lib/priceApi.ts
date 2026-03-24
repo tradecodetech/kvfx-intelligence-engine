@@ -1,8 +1,16 @@
 /**
  * KVFX Live Price API — TwelveData Integration
  *
- * Fetches real-time prices for detected instruments.
- * Results are cached for 15 seconds to avoid hammering the API.
+ * Two fetch strategies:
+ *
+ *   fetchLivePrice(pair)         — single-pair, 15-second in-memory cache.
+ *                                  Used by the analysis path for conversational messages.
+ *
+ *   fetchLivePricesForScan(pairs) — multi-pair, parallel, NO cache.
+ *                                   Always bypasses in-memory cache and disables Vercel
+ *                                   HTTP data cache (cache: 'no-store'). Used by the
+ *                                   command/scan path so every scan reflects the
+ *                                   current market, not a prior request's prices.
  *
  * Env:  TWELVEDATA_API_KEY
  * Docs: https://twelvedata.com/docs#price
@@ -52,7 +60,7 @@ const SYMBOL_MAP: Record<string, string> = {
   ETH:     "ETH/USD",
 };
 
-// ── In-Memory Cache ───────────────────────────────────────────────────────────
+// ── In-Memory Cache (analysis path only) ─────────────────────────────────────
 
 interface CacheEntry {
   price:     number;
@@ -76,38 +84,38 @@ function setCache(pair: string, price: number): void {
   _cache.set(pair, { price, fetchedAt: Date.now() });
 }
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
+// ── Shared Constants ──────────────────────────────────────────────────────────
 
 const FETCH_TIMEOUT_MS = 5_000;
 const BASE_URL = "https://api.twelvedata.com/price";
 
+// ── Core fetch — always fresh, no-store ──────────────────────────────────────
+
 /**
- * Fetches the live price for an internal KVFX pair symbol.
- * Returns null on any failure (no key, unknown symbol, timeout, API error).
+ * Fetches a single price directly from TwelveData with no caching.
+ * - `cache: 'no-store'` disables Vercel's HTTP data cache so every call
+ *   hits the upstream API and never returns a Vercel-cached response.
+ * - Does NOT read or write the in-memory cache.
  */
-export async function fetchLivePrice(pair: string): Promise<number | null> {
+async function fetchFreshPrice(pair: string): Promise<number | null> {
   const symbol = SYMBOL_MAP[pair.toUpperCase()];
   if (!symbol) return null;
 
   const apiKey = process.env.TWELVEDATA_API_KEY;
-  if (!apiKey) {
-    console.warn("⚠️ TWELVEDATA_API_KEY not configured — live prices disabled");
-    return null;
-  }
-
-  // Return cached price if still fresh
-  const cached = getCached(pair);
-  if (cached !== null) {
-    console.log(`💹 CACHED PRICE: ${pair} = ${cached}`);
-    return cached;
-  }
+  if (!apiKey) return null;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
     const url = `${BASE_URL}?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
-    const res = await fetch(url, { signal: controller.signal });
+
+    // cache: 'no-store' — opt out of Next.js/Vercel data cache entirely.
+    // Every invocation reaches TwelveData's servers for a live quote.
+    const res = await fetch(url, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
     clearTimeout(timer);
 
     if (!res.ok) {
@@ -117,8 +125,6 @@ export async function fetchLivePrice(pair: string): Promise<number | null> {
 
     const data: unknown = await res.json();
 
-    // TwelveData returns { price: "1.08542" } on success
-    // or { code: 404, message: "...", status: "error" } on failure
     if (
       !data ||
       typeof data !== "object" ||
@@ -132,15 +138,94 @@ export async function fetchLivePrice(pair: string): Promise<number | null> {
     const price = parseFloat((data as { price: string }).price);
     if (!isFinite(price) || price <= 0) return null;
 
-    setCache(pair, price);
-    console.log(`💹 LIVE PRICE: ${pair} (${symbol}) = ${price}`);
     return price;
   } catch (err) {
     clearTimeout(timer);
     const isAbort = err instanceof Error && err.name === "AbortError";
-    console.warn(isAbort ? `⏱ TwelveData timeout for ${symbol}` : `⚠️ TwelveData error: ${err}`);
+    console.warn(
+      isAbort
+        ? `⏱ TwelveData timeout for ${symbol}`
+        : `⚠️ TwelveData error for ${symbol}: ${err}`
+    );
     return null;
   }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches the live price for a single pair.
+ * Uses a 15-second in-memory cache — suitable for the analysis path where
+ * a conversational message triggers one price lookup per request.
+ */
+export async function fetchLivePrice(pair: string): Promise<number | null> {
+  const apiKey = process.env.TWELVEDATA_API_KEY;
+  if (!apiKey) {
+    console.warn("⚠️ TWELVEDATA_API_KEY not configured — live prices disabled");
+    return null;
+  }
+
+  // Return cached price if still fresh
+  const cached = getCached(pair);
+  if (cached !== null) {
+    console.log(`💹 CACHED PRICE: ${pair} = ${cached}`);
+    return cached;
+  }
+
+  const price = await fetchFreshPrice(pair);
+
+  if (price !== null) {
+    setCache(pair, price);
+    console.log(`💹 LIVE PRICE: ${pair} (${SYMBOL_MAP[pair.toUpperCase()] ?? pair}) = ${price}`);
+  }
+
+  return price;
+}
+
+/**
+ * Fetches live prices for multiple pairs in parallel.
+ *
+ * Always bypasses the in-memory cache and uses cache: 'no-store' on every
+ * request. Designed for market scans where:
+ *   - Each pair needs its own independent fresh quote
+ *   - No price should be reused from a prior scan or analysis call
+ *   - Vercel must not serve a cached response for any pair
+ *
+ * Returns a map of { PAIR_SYMBOL → price | null }.
+ * Pairs with no TwelveData mapping, API errors, or timeouts return null —
+ * the caller decides how to handle missing prices.
+ */
+export async function fetchLivePricesForScan(
+  pairs: string[]
+): Promise<Record<string, number | null>> {
+  const apiKey = process.env.TWELVEDATA_API_KEY;
+  if (!apiKey) {
+    console.warn("⚠️ TWELVEDATA_API_KEY not configured — scan prices unavailable");
+    return Object.fromEntries(pairs.map((p) => [p.toUpperCase(), null]));
+  }
+
+  const upperPairs = [...new Set(pairs.map((p) => p.toUpperCase()))];
+
+  const results = await Promise.allSettled(
+    upperPairs.map(async (pair) => {
+      const price = await fetchFreshPrice(pair);
+      return { pair, price };
+    })
+  );
+
+  const prices: Record<string, number | null> = {};
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      prices[result.value.pair] = result.value.price;
+      if (result.value.price !== null) {
+        console.log(
+          `💹 SCAN PRICE: ${result.value.pair} (${SYMBOL_MAP[result.value.pair] ?? result.value.pair}) = ${result.value.price}`
+        );
+      }
+    }
+  }
+
+  return prices;
 }
 
 /** Expose the symbol map so callers can check if a pair is supported. */

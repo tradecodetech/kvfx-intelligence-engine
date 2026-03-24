@@ -4,10 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * KVFX Auth Middleware
  *
- * Protects /assistant, /logs, /add-trade.
+ * Protects /assistant, /logs, /add-trade, /upgrade.
  * Refreshes Supabase auth tokens on every request.
  * Redirects unauthenticated users to /login.
  * Redirects authenticated users away from /login.
+ * Redirects beta users with expired access to /upgrade.
  */
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -42,12 +43,34 @@ export async function middleware(request: NextRequest) {
   const isProtected =
     pathname.startsWith("/assistant") ||
     pathname.startsWith("/logs") ||
-    pathname.startsWith("/add-trade");
+    pathname.startsWith("/add-trade") ||
+    pathname.startsWith("/upgrade");
 
   if (isProtected && !user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Beta expiry check — only on /assistant routes, not /upgrade itself
+  if (user && pathname.startsWith("/assistant")) {
+    try {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("tier, beta_expires_at")
+        .eq("id", user.id)
+        .single();
+
+      if (
+        profile?.tier === "beta" &&
+        profile?.beta_expires_at &&
+        new Date(profile.beta_expires_at) < new Date()
+      ) {
+        return NextResponse.redirect(new URL("/upgrade", request.url));
+      }
+    } catch {
+      // Profile read failure — allow through, page will handle gracefully
+    }
   }
 
   // Redirect authenticated users away from login page

@@ -21,20 +21,22 @@ export default async function AssistantPage() {
     redirect("/login");
   }
 
-  // Read user tier from profile (defaults to "beta" if no profile yet)
+  // Read user profile (tier + beta expiry)
   const { data: profile } = await supabase
     .from("user_profiles")
-    .select("tier")
+    .select("tier, beta_expires_at")
     .eq("id", user.id)
     .single();
 
   const tier = (profile?.tier as "beta" | "pro") ?? "beta";
+  const betaExpiresAt = profile?.beta_expires_at ?? null;
 
   return (
     <ChatUI
       userEmail={user.email ?? ""}
       userId={user.id}
       userTier={tier}
+      betaExpiresAt={betaExpiresAt}
     />
   );
 }

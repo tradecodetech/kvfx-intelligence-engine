@@ -93,6 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_kvfx_trades_session_id ON kvfx_trades(session_id)
 CREATE TABLE IF NOT EXISTS user_profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   tier TEXT NOT NULL DEFAULT 'beta' CHECK (tier IN ('beta', 'pro')),
+  beta_expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '14 days'),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -110,8 +111,8 @@ CREATE POLICY "Users can update own profile"
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO user_profiles (id, tier)
-  VALUES (NEW.id, 'beta')
+  INSERT INTO user_profiles (id, tier, beta_expires_at)
+  VALUES (NEW.id, 'beta', NOW() + INTERVAL '14 days')
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;

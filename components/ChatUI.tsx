@@ -289,6 +289,117 @@ function InsightCard({ insight }: { insight: InsightData }) {
   );
 }
 
+// ── KVFX Quick Format Parser + Card ───────────────────────
+
+interface KVFXQuickData {
+  pair: string;
+  price: string;
+  bias: string;
+  structure: string;
+  confidence: string;
+  kvfxRead: string;
+}
+
+function parseKVFXQuickFormat(content: string): { data: KVFXQuickData; rest: string } | null {
+  // Match: **Pair:** X | **Price:** X | **Bias:** X | **Structure:** X | **Confidence:** X
+  const quickLineRegex =
+    /\*\*Pair:\*\*\s*([^|]+?)\s*\|\s*\*\*Price:\*\*\s*([^|]+?)\s*\|\s*\*\*Bias:\*\*\s*([^|]+?)\s*\|\s*\*\*Structure:\*\*\s*([^|]+?)\s*\|\s*\*\*Confidence:\*\*\s*([^\n]+)/i;
+  const quickMatch = content.match(quickLineRegex);
+  if (!quickMatch) return null;
+
+  const readRegex = /\*\*KVFX Read:\*\*\s*([^\n]+(?:\n(?!\n)[^\n]+)*)/i;
+  const readMatch = content.match(readRegex);
+
+  const rest = content
+    .replace(quickMatch[0], "")
+    .replace(readMatch ? readMatch[0] : "", "")
+    .replace(/^\n+/, "")
+    .trim();
+
+  return {
+    data: {
+      pair: quickMatch[1].trim(),
+      price: quickMatch[2].trim(),
+      bias: quickMatch[3].trim(),
+      structure: quickMatch[4].trim(),
+      confidence: quickMatch[5].trim(),
+      kvfxRead: readMatch ? readMatch[1].trim() : "",
+    },
+    rest,
+  };
+}
+
+function KVFXQuickCard({ data, rest }: { data: KVFXQuickData; rest: string }) {
+  const biasLower = data.bias.toLowerCase();
+  const biasStyle =
+    biasLower.includes("long") || biasLower.includes("bull")
+      ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+      : biasLower.includes("short") || biasLower.includes("bear")
+      ? "text-red-400 bg-red-500/10 border-red-500/30"
+      : "text-gray-300 bg-slate-700/60 border-slate-500";
+
+  const confLower = data.confidence.toLowerCase();
+  const confStyle =
+    confLower.includes("high")
+      ? "text-emerald-400"
+      : confLower.includes("medium")
+      ? "text-[#c9a84c]"
+      : "text-gray-400";
+
+  const priceValid = data.price && data.price.toLowerCase() !== "n/a" && data.price !== "";
+
+  return (
+    <div className="space-y-3">
+      {/* Quick header card */}
+      <div className="rounded-xl bg-slate-900 border border-slate-600 overflow-hidden">
+        {/* Top row: pair + price + bias + confidence */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-black text-gray-100 tracking-widest font-mono">
+              {data.pair}
+            </span>
+            {priceValid && (
+              <span className="text-xs font-mono text-gray-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-600">
+                {data.price}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-[9px] font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${biasStyle}`}
+            >
+              {data.bias}
+            </span>
+            <span className={`text-[9px] font-mono uppercase tracking-wider font-semibold ${confStyle}`}>
+              {data.confidence}
+            </span>
+          </div>
+        </div>
+
+        {/* Structure row */}
+        {data.structure && (
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-700/60">
+            <span className="text-[9px] font-mono uppercase tracking-wider text-gray-500 flex-shrink-0">
+              Structure
+            </span>
+            <span className="text-[10px] text-gray-300 font-mono">{data.structure}</span>
+          </div>
+        )}
+
+        {/* KVFX Read */}
+        {data.kvfxRead && (
+          <div className="px-4 py-3 bg-slate-800/50">
+            <p className="text-xs text-gray-200 leading-relaxed">{data.kvfxRead}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Remainder: full analysis + PLAN block */}
+      {rest && <MarkdownText text={rest} />}
+    </div>
+  );
+}
+
 // Renders **Header:** pattern as styled section labels
 function MarkdownText({ text }: { text: string }) {
   return (
@@ -324,8 +435,10 @@ function MessageBubble({
   copied: boolean;
 }) {
   const isUser = message.role === "user";
+  const kvfxParsed = !isUser ? parseKVFXQuickFormat(message.content) : null;
   const isStructured =
     !isUser &&
+    !kvfxParsed &&
     message.assistantMode &&
     ["chart", "trade-review", "thesis"].includes(message.assistantMode) &&
     message.content.includes("**");
@@ -413,7 +526,9 @@ function MessageBubble({
 
         {/* Content */}
         <div className="px-4 py-3.5">
-          {isStructured ? (
+          {kvfxParsed ? (
+            <KVFXQuickCard data={kvfxParsed.data} rest={kvfxParsed.rest} />
+          ) : isStructured ? (
             <MarkdownText text={message.content} />
           ) : (
             <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
@@ -490,29 +605,26 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
 
         <div className="w-full max-w-md space-y-4">
 
-          {/* Beta Focus Pairs — prominent section */}
+          {/* Active Markets — full engine */}
           <div className="rounded-xl border border-[#c9a84c]/15 bg-slate-800 overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#c9a84c]/60" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#c9a84c]/60 animate-pulse" />
               <span className="text-[8px] font-mono uppercase tracking-[0.18em] text-[#c9a84c]/60">
-                Beta Focus Pairs
+                Full Engine Active
               </span>
             </div>
             <div className="grid grid-cols-2 divide-x divide-slate-600">
               {[
-                { pair: "EURUSD", note: "Major FX — Euro vs Dollar" },
-                { pair: "NAS100", note: "US Tech — NASDAQ 100" },
-              ].map(({ pair, note }) => (
-                <div key={pair} className="px-4 py-3">
-                  <p className="text-sm font-bold font-mono text-gray-100 tracking-wider mb-0.5">{pair}</p>
-                  <p className="text-[9px] text-gray-500 font-mono">{note}</p>
+                { label: "Forex", desc: "EURUSD · GBPUSD · USDJPY + more" },
+                { label: "Indices", desc: "NASDAQ · SPX · US30 · DXY" },
+                { label: "Metals", desc: "GOLD · SILVER · OIL" },
+                { label: "Crypto", desc: "BTCUSD · ETHUSD" },
+              ].map(({ label, desc }) => (
+                <div key={label} className="px-4 py-2.5">
+                  <p className="text-xs font-bold font-mono text-gray-200 tracking-wide mb-0.5">{label}</p>
+                  <p className="text-[9px] text-gray-500 font-mono">{desc}</p>
                 </div>
               ))}
-            </div>
-            <div className="px-3 py-2 border-t border-slate-600 bg-slate-900">
-              <p className="text-[8px] font-mono text-[#1a2540]">
-                Full engine unlocks: GBPUSD · USDJPY · GOLD · SPX · DXY · all forex + indices
-              </p>
             </div>
           </div>
 
@@ -766,10 +878,101 @@ interface ChatUIProps {
   userEmail?: string;
   userId?: string;
   userTier?: "beta" | "pro";
+  betaExpiresAt?: string | null;
 }
 
-export default function ChatUI({ userEmail = "", userId: _userId = "", userTier = "beta" }: ChatUIProps) {
+// ── Beta Expiry Helpers ───────────────────────────────────────────────────────
+
+function getBetaDaysRemaining(expiresAt: string | null | undefined): number | null {
+  if (!expiresAt) return null;
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
+// ── Beta Banner ───────────────────────────────────────────────────────────────
+
+function BetaBanner({ daysRemaining }: { daysRemaining: number }) {
+  const urgent = daysRemaining <= 3;
+  const bg   = urgent ? "bg-red-500/15 border-red-500/30" : "bg-[#c9a84c]/10 border-[#c9a84c]/25";
+  const text = urgent ? "text-red-300" : "text-[#c9a84c]";
+  const dot  = urgent ? "bg-red-400 animate-pulse" : "bg-[#c9a84c]/60";
+
+  return (
+    <div className={`flex items-center justify-between px-4 py-2 border-b text-[10px] font-mono ${bg}`}>
+      <div className="flex items-center gap-2">
+        <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+        <span className={`uppercase tracking-widest font-semibold ${text}`}>
+          BETA ACCESS
+        </span>
+        <span className="text-gray-400">—</span>
+        <span className={`${text}`}>
+          {daysRemaining === 1 ? "1 day remaining" : `${daysRemaining} days remaining`}
+        </span>
+      </div>
+      <span className="text-gray-500 tracking-wide">Full engine · All pairs · All markets</span>
+    </div>
+  );
+}
+
+// ── Beta Expired Modal ────────────────────────────────────────────────────────
+
+function BetaExpiredModal() {
   const router = useRouter();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm">
+      <div className="w-full max-w-sm bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-slate-600">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#1d3461] to-[#2a1f5f] border border-slate-500 flex items-center justify-center">
+              <span className="text-[#c9a84c] text-xs font-black">KV</span>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-300 tracking-wide">KVFX Intelligence Engine</p>
+              <p className="text-[9px] font-mono text-gray-500 uppercase tracking-widest">Beta Access</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-red-400" />
+            <span className="text-[9px] font-mono uppercase tracking-widest text-red-400">Access Expired</span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-100 leading-tight">Your Beta Access Has Ended</h2>
+            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+              Upgrade to continue using the KVFX Intelligence Engine — full access to all markets, scans, and AI analysis.
+            </p>
+          </div>
+
+          <div className="space-y-2 text-[10px] font-mono text-gray-400">
+            {["All forex, indices, metals, crypto", "Unlimited AI analysis sessions", "Market scans across all pairs", "Full KVFX v3 + WhisperZonez engine"].map((f) => (
+              <div key={f} className="flex items-center gap-2">
+                <span className="text-emerald-400">✓</span>
+                <span>{f}</span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => router.push("/upgrade")}
+            className="w-full py-3 rounded-xl bg-[#c9a84c]/20 hover:bg-[#c9a84c]/30 text-[#c9a84c] border border-[#c9a84c]/35 text-sm font-semibold tracking-wide transition-all duration-150"
+          >
+            Upgrade Access →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ChatUI({ userEmail = "", userId: _userId = "", userTier = "beta", betaExpiresAt = null }: ChatUIProps) {
+  const router = useRouter();
+
+  const betaDaysRemaining = userTier === "beta" ? getBetaDaysRemaining(betaExpiresAt) : null;
+  const isBetaExpired = betaDaysRemaining !== null && betaDaysRemaining <= 0;
 
   const handleSignOut = useCallback(async () => {
     const supabase = createClient();
@@ -806,6 +1009,9 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tracks the latest input value synchronously — avoids stale closure reads on
+  // mobile where touchend fires before React has committed the onChange re-render.
+  const latestInputRef = useRef("");
 
   // ── Effects ──
   useEffect(() => { setSavedAnalyses(loadSaved()); }, []);
@@ -856,9 +1062,29 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
     persistSaved(updated);
   }, [savedAnalyses]);
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim();
+  // Single dispatch entry point for all send paths.
+  // Accepts an optional textOverride so quick chips and forms can pass their
+  // value directly without relying on React state having flushed yet.
+  // For typed input, reads latestInputRef (always current) instead of the
+  // `input` state — eliminates the stale-closure race on mobile touchend.
+  const sendMessage = useCallback(async (textOverride?: string) => {
+    // Determine the text to send: explicit override beats ref beats state
+    const text = (textOverride !== undefined ? textOverride : latestInputRef.current).trim();
     if ((!text && !pendingImage) || isLoading) return;
+
+    // Snapshot image before clearing state
+    const imgToSend = pendingImage?.dataUrl;
+
+    // Determine effective mode at dispatch time — do not trust assistantMode state
+    // blindly. "chart" mode is only meaningful when an image is actually attached.
+    // If no image is present (including after a prior image was sent and cleared),
+    // downgrade "chart" → "chat" so the backend receives the correct prompt context.
+    // Explicit user-selected modes ("trade-review", "thesis") are always preserved.
+    const effectiveMode: AssistantMode = imgToSend
+      ? "chart"
+      : assistantMode === "chart"
+      ? "chat"
+      : assistantMode;
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -868,27 +1094,57 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMsg]);
+
+    // Clear input synchronously — both ref and state — before any async work
+    latestInputRef.current = "";
     setInput("");
-    const imgToSend = pendingImage?.dataUrl;
     setPendingImage(null);
     setIsTradePlanOpen(false);
     setIsLoading(true);
 
+    // Reset assistantMode back to "chat" whenever it was "chart" — prevents the
+    // mode from staying stuck after an image is consumed, so the next text-only
+    // message doesn't inherit chart context.
+    if (assistantMode === "chart") setAssistantMode("chat");
+
     try {
+      // Build payload with explicit null for every optional field so JSON.stringify
+      // never omits keys. `undefined` values are silently dropped by JSON.stringify,
+      // which produces different payloads on mobile vs desktop depending on whether
+      // state has flushed. Using null guarantees a complete, consistent body.
+      // Client-side command hint — runs on raw text before JSON serialization.
+      // Mobile keyboards can insert Unicode non-breaking spaces (\u00A0) that may
+      // survive encoding and cause backend string matching to miss. This boolean flag
+      // provides a redundant detection layer: if the client sees a scan command, the
+      // backend promotes to COMMAND PATH regardless of its own string check result.
+      const _cn = (t: string) =>
+        t.toLowerCase().replace(/[^\S\x20]/g, " ").replace(/\s+/g, " ").trim();
+      const _cl = [
+        "scan market","kvfx scan","whisper scan","engine scan","best setup",
+        "best setups","scan pairs","full scan","market scan","run scan","scan now",
+        "give me a scan","what's the best","what is the best","bias board",
+        "liquidity scan","risk environment","show me setups","any setups",
+        "what's setting up",
+      ];
+      const commandHint = _cl.some((c) => _cn(text).includes(c));
+
+      const payload = {
+        message:        text,
+        sessionId:      sessionId ?? null,
+        tradingMode:    tradingMode,
+        assistantMode:  effectiveMode,
+        image:          imgToSend ?? null,
+        thesisContext:  thesisContext ?? null,
+        timeframe:      selectedTimeframe || null,
+        tradingSession: selectedSession  || null,
+        isTradeInsight: effectiveMode === "trade-review" || effectiveMode === "chart",
+        commandHint,
+      };
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          sessionId,
-          tradingMode,
-          assistantMode,
-          image: imgToSend,
-          thesisContext,
-          timeframe: selectedTimeframe || undefined,
-          tradingSession: selectedSession || undefined,
-          isTradeInsight: assistantMode === "trade-review" || assistantMode === "chart",
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) throw new Error((await res.json()).error ?? "Request failed");
@@ -904,7 +1160,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
           insight: data.insight,
           intelligenceCard: data.intelligenceCard ?? null,
           scanResults: data.scanResults ?? null,
-          assistantMode,
+          assistantMode: effectiveMode,
           timestamp: new Date(),
         },
       ]);
@@ -914,7 +1170,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: "Unable to detect structure — try adding more context. (e.g. pair + bias + timeframe)",
+          content: "Connection issue — please try again. If the problem persists, check your internet connection.",
           assistantMode: "chat",
           timestamp: new Date(),
         },
@@ -923,7 +1179,9 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, pendingImage, sessionId, tradingMode, assistantMode, thesisContext, selectedTimeframe, selectedSession]);
+  // `input` intentionally omitted — latestInputRef is always current without
+  // triggering re-renders, so sendMessage never captures a stale input value.
+  }, [isLoading, pendingImage, sessionId, tradingMode, assistantMode, thesisContext, selectedTimeframe, selectedSession]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -951,6 +1209,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
   // ── Render ──
   return (
     <div className="flex h-screen bg-slate-900 text-gray-100 overflow-hidden">
+      {isBetaExpired && <BetaExpiredModal />}
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -992,6 +1251,11 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
 
         {/* ─ Top bar ─ */}
         <div className="flex-shrink-0 border-b border-slate-600 bg-slate-800">
+          {/* Beta countdown banner */}
+          {userTier === "beta" && betaDaysRemaining !== null && betaDaysRemaining > 0 && (
+            <BetaBanner daysRemaining={betaDaysRemaining} />
+          )}
+
           {/* Row 1 — assistant mode tabs */}
           <div className="flex items-center gap-1 px-4 pt-3 pb-2 border-b border-slate-600">
             {(Object.keys(ASSISTANT_MODE_CONFIG) as AssistantMode[]).map((m) => {
@@ -1147,7 +1411,11 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                 {/* Trade plan form */}
                 {isTradePlanOpen && (
                   <TradePlanForm
-                    onSubmit={(text) => { setInput(text); setAssistantMode("trade-review"); }}
+                    onSubmit={(text) => {
+                      latestInputRef.current = text;
+                      setInput(text);
+                      setAssistantMode("trade-review");
+                    }}
                     onClose={() => setIsTradePlanOpen(false)}
                   />
                 )}
@@ -1187,9 +1455,14 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                     <textarea
                       ref={textareaRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={(e) => {
+                        latestInputRef.current = e.target.value;
+                        setInput(e.target.value);
+                      }}
                       onKeyDown={handleKeyDown}
+                      disabled={isBetaExpired}
                       placeholder={
+                        isBetaExpired ? "Beta access has expired — upgrade to continue" :
                         pendingImage ? "Add context for this chart (optional)..." :
                         assistantMode === "chart" ? "Describe the chart, or upload an image above..." :
                         assistantMode === "trade-review" ? "Describe your trade setup, or use the Plan button..." :
@@ -1197,7 +1470,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                         "Describe your setup, ask a question, or analyze market context..."
                       }
                       rows={1}
-                      className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-600 resize-none focus:outline-none leading-relaxed min-h-[40px] max-h-[130px] font-sans"
+                      className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-600 resize-none focus:outline-none leading-relaxed min-h-[40px] max-h-[130px] font-sans disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -1248,9 +1521,15 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
 
                     {/* Send button */}
                     <button
-                      onClick={sendMessage}
-                      disabled={(!input.trim() && !pendingImage) || isLoading}
-                      className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#c9a84c]/15 hover:bg-[#c9a84c]/25 disabled:bg-slate-800 text-[#c9a84c] disabled:text-gray-500 border border-[#c9a84c]/25 disabled:border-slate-600 transition-all duration-150 disabled:cursor-not-allowed"
+                      onClick={() => sendMessage()}
+                      disabled={isLoading || isBetaExpired}
+                      className={`flex items-center justify-center w-8 h-8 rounded-lg border transition-all duration-150 ${
+                        isLoading || isBetaExpired
+                          ? "bg-slate-800 text-gray-500 border-slate-600 cursor-not-allowed"
+                          : (!input.trim() && !pendingImage)
+                          ? "bg-slate-800 text-gray-500 border-slate-600"
+                          : "bg-[#c9a84c]/15 hover:bg-[#c9a84c]/25 text-[#c9a84c] border-[#c9a84c]/25"
+                      }`}
                     >
                       {isLoading ? (
                         <div className="w-3 h-3 border border-[#c9a84c]/30 border-t-[#c9a84c] rounded-full animate-spin" />
@@ -1267,10 +1546,10 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                 {!input.trim() && !pendingImage && !isLoading && assistantMode === "chat" && (
                   <div className="flex items-center gap-1.5 flex-wrap pt-1">
                     <span className="text-[8px] font-mono text-[#1a2540] uppercase tracking-widest mr-0.5">Try:</span>
-                    {["engine scan", "EURUSD rejecting supply", "NAS100 sweep highs", "best setup"].map((cmd) => (
+                    {["engine scan", "EURUSD rejecting supply", "GOLD BOS bullish", "best setup"].map((cmd) => (
                       <button
                         key={cmd}
-                        onClick={() => setInput(cmd)}
+                        onClick={() => sendMessage(cmd)}
                         className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-slate-800 border border-slate-600 text-gray-400 hover:text-gray-200 hover:border-slate-500 hover:bg-slate-700 transition-all duration-150"
                       >
                         {cmd}

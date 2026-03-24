@@ -122,9 +122,25 @@ const SCAN_COMMANDS = [
   "what's setting up",
 ];
 
+/**
+ * Normalise a string for command matching.
+ * Replaces every Unicode whitespace variant (non-breaking space U+00A0,
+ * narrow no-break space U+202F, ideographic space U+3000, etc.) with a
+ * plain ASCII space, then collapses runs of spaces and trims.
+ * Mobile keyboards commonly insert U+00A0 instead of U+0020, which makes
+ * simple .includes() checks miss exact command strings.
+ */
+function normaliseForMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\S\x20]/g, " ")   // any whitespace that is not ASCII space → space
+    .replace(/\s+/g, " ")         // collapse multiple spaces
+    .trim();
+}
+
 export function isScanCommand(text: string): boolean {
-  const lower = text.toLowerCase().trim();
-  return SCAN_COMMANDS.some((cmd) => lower.includes(cmd));
+  const normalised = normaliseForMatch(text);
+  return SCAN_COMMANDS.some((cmd) => normalised.includes(cmd));
 }
 
 // ── Default Instrument List ───────────────────────────────────────────────────
@@ -146,7 +162,8 @@ function extractPairs(text: string): string[] {
 export function buildScanPrompt(
   userMessage: string,
   tradingMode: string,
-  allowedPairs?: string[]   // When provided, restricts scan to these pairs (beta tier)
+  allowedPairs?: string[],
+  livePrices?: Record<string, number | null>  // fresh prices fetched before this call
 ): string {
   const mentioned = extractPairs(userMessage);
   let pairs = mentioned.length > 0 ? mentioned : DEFAULT_PAIRS;
@@ -157,6 +174,7 @@ export function buildScanPrompt(
     const filtered = pairs.filter((p) => upper.includes(p.toUpperCase()));
     pairs = filtered.length > 0 ? filtered : allowedPairs;
   }
+
   const modeNote =
     tradingMode === "scalping"
       ? "Use strict scalping confirmation: M5-M15 structure required."
@@ -164,7 +182,21 @@ export function buildScanPrompt(
       ? "Use macro confluence: weekly/daily structure must agree."
       : "Use swing confirmation: H1-H4 structure with HTF alignment.";
 
-  return `You are the KVFX Scan Engine — combining WhisperZonez liquidity logic with KVFX Algo v3 structure methodology.
+  // Build live price block — injected at the top of the prompt so the model
+  // uses real current prices rather than estimated or assumed values.
+  // Only included when fresh prices were successfully fetched.
+  const priceLines = pairs
+    .map((p) => {
+      const price = livePrices?.[p.toUpperCase()];
+      return price != null ? `${p}: ${price}` : null;
+    })
+    .filter(Boolean);
+
+  const priceBlock = priceLines.length > 0
+    ? `[CURRENT MARKET PRICES — LIVE, USE THESE EXACT VALUES]\n${priceLines.join("\n")}\n\nReference these prices when describing levels, zones, and structure context. Do not estimate or invent prices for any listed pair.\n\n`
+    : "";
+
+  return `${priceBlock}You are the KVFX Scan Engine — combining WhisperZonez liquidity logic with KVFX Algo v3 structure methodology.
 
 Scan the following instruments: ${pairs.join(", ")}
 
