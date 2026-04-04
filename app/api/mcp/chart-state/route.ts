@@ -4,7 +4,7 @@ const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL!, token: proce
 const REDIS_KEY = "kvfx:chart-state";
 export async function GET() {
   try {
-    const raw = await redis.get<string>(REDIS_KEY);
+    const raw = await redis.get(REDIS_KEY);
     if (!raw) return NextResponse.json({ success: false, error: "No chart state in Redis. Is the MCP bridge running?" }, { status: 404 });
     const state = typeof raw === "string" ? JSON.parse(raw) : raw;
     return NextResponse.json({ ...state, fromCache: true });
