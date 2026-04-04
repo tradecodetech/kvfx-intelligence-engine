@@ -10,7 +10,9 @@ import ThesisPanel from "./ThesisPanel";
 import TradePlanForm from "./TradePlanForm";
 import TradeIntelligenceCard from "./TradeIntelligenceCard";
 import ScanResultsCard from "./ScanResultsCard";
+import LiveChartBadge from "./LiveChartBadge";
 import { createClient } from "@/lib/supabase/client";
+import { getLiveChartContext } from "@/lib/liveChart";
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -211,7 +213,6 @@ function InsightCard({ insight }: { insight: InsightData }) {
 
   return (
     <div className="mt-3 rounded-lg overflow-hidden border border-slate-600 bg-slate-900">
-      {/* Summary row — always visible */}
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-3.5 py-2.5 hover:bg-slate-800 transition-colors duration-150"
@@ -239,11 +240,9 @@ function InsightCard({ insight }: { insight: InsightData }) {
         </svg>
       </button>
 
-      {/* Expanded detail */}
       {open && (
         <div className="px-3.5 pb-3.5 pt-1 space-y-3 border-t border-slate-600">
           <AlignmentMeter score={insight.alignmentScore} />
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-400 mb-1.5">Timeframe</p>
@@ -269,14 +268,12 @@ function InsightCard({ insight }: { insight: InsightData }) {
               </div>
             )}
           </div>
-
           {insight.notes && (
             <div>
               <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-400 mb-1.5">Notes</p>
               <p className="text-xs text-gray-300 leading-relaxed">{insight.notes}</p>
             </div>
           )}
-
           {insight.riskWarnings && (
             <div className="border-l-2 border-amber-500/30 pl-2.5">
               <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-amber-500/50 mb-1">Risk</p>
@@ -301,7 +298,6 @@ interface KVFXQuickData {
 }
 
 function parseKVFXQuickFormat(content: string): { data: KVFXQuickData; rest: string } | null {
-  // Match: **Pair:** X | **Price:** X | **Bias:** X | **Structure:** X | **Confidence:** X
   const quickLineRegex =
     /\*\*Pair:\*\*\s*([^|]+?)\s*\|\s*\*\*Price:\*\*\s*([^|]+?)\s*\|\s*\*\*Bias:\*\*\s*([^|]+?)\s*\|\s*\*\*Structure:\*\*\s*([^|]+?)\s*\|\s*\*\*Confidence:\*\*\s*([^\n]+)/i;
   const quickMatch = content.match(quickLineRegex);
@@ -350,9 +346,7 @@ function KVFXQuickCard({ data, rest }: { data: KVFXQuickData; rest: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Quick header card */}
       <div className="rounded-xl bg-slate-900 border border-slate-600 overflow-hidden">
-        {/* Top row: pair + price + bias + confidence */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
           <div className="flex items-center gap-3">
             <span className="text-sm font-black text-gray-100 tracking-widest font-mono">
@@ -365,9 +359,7 @@ function KVFXQuickCard({ data, rest }: { data: KVFXQuickData; rest: string }) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span
-              className={`text-[9px] font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${biasStyle}`}
-            >
+            <span className={`text-[9px] font-mono font-bold uppercase tracking-widest px-2 py-0.5 rounded border ${biasStyle}`}>
               {data.bias}
             </span>
             <span className={`text-[9px] font-mono uppercase tracking-wider font-semibold ${confStyle}`}>
@@ -375,32 +367,23 @@ function KVFXQuickCard({ data, rest }: { data: KVFXQuickData; rest: string }) {
             </span>
           </div>
         </div>
-
-        {/* Structure row */}
         {data.structure && (
           <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-700/60">
-            <span className="text-[9px] font-mono uppercase tracking-wider text-gray-500 flex-shrink-0">
-              Structure
-            </span>
+            <span className="text-[9px] font-mono uppercase tracking-wider text-gray-500 flex-shrink-0">Structure</span>
             <span className="text-[10px] text-gray-300 font-mono">{data.structure}</span>
           </div>
         )}
-
-        {/* KVFX Read */}
         {data.kvfxRead && (
           <div className="px-4 py-3 bg-slate-800/50">
             <p className="text-xs text-gray-200 leading-relaxed">{data.kvfxRead}</p>
           </div>
         )}
       </div>
-
-      {/* Remainder: full analysis + PLAN block */}
       {rest && <MarkdownText text={rest} />}
     </div>
   );
 }
 
-// Renders **Header:** pattern as styled section labels
 function MarkdownText({ text }: { text: string }) {
   return (
     <div className="space-y-0.5">
@@ -467,19 +450,15 @@ function MessageBubble({
     );
   }
 
-  // Assistant message — card style
   return (
     <div className="flex flex-col items-start group">
       <div className="w-full bg-slate-800/80 backdrop-blur-sm border border-slate-600 rounded-2xl rounded-tl-sm overflow-hidden hover:border-slate-500 shadow-lg transition-colors duration-150">
-        {/* Card header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-600 bg-slate-800">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded bg-gradient-to-br from-[#1d3461]/80 to-[#2a1f5f]/80 border border-slate-500 flex items-center justify-center">
               <span className="text-[#c9a84c] text-[8px] font-black">KV</span>
             </div>
-            <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-400">
-              KVFX Engine
-            </span>
+            <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-400">KVFX Engine</span>
             {message.assistantMode && message.assistantMode !== "chat" && (
               <span className={`text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                 message.assistantMode === "chart" ? "bg-sky-500/10 text-sky-400/70 border-sky-500/20" :
@@ -490,7 +469,6 @@ function MessageBubble({
               </span>
             )}
           </div>
-          {/* Action buttons */}
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
             <button
               onClick={onCopy}
@@ -524,31 +502,25 @@ function MessageBubble({
           </div>
         </div>
 
-        {/* Content */}
         <div className="px-4 py-3.5">
           {kvfxParsed ? (
             <KVFXQuickCard data={kvfxParsed.data} rest={kvfxParsed.rest} />
           ) : isStructured ? (
             <MarkdownText text={message.content} />
           ) : (
-            <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
-              {message.content}
-            </p>
+            <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{message.content}</p>
           )}
         </div>
 
-        {/* Scan Results — highest priority */}
         {message.scanResults ? (
           <div className="px-4 pb-3.5">
             <ScanResultsCard results={message.scanResults} />
           </div>
         ) : message.intelligenceCard ? (
-          /* KVFX Intelligence Card */
           <div className="px-4 pb-3.5">
             <TradeIntelligenceCard card={message.intelligenceCard} />
           </div>
         ) : message.insight ? (
-          /* Legacy InsightCard — fallback */
           <div className="px-4 pb-3.5">
             <InsightCard insight={message.insight} />
           </div>
@@ -582,12 +554,9 @@ function TypingIndicator() {
 }
 
 function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
-  // Full welcome screen for chat mode
   if (assistantMode === "chat") {
     return (
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 select-none">
-
-        {/* Wordmark */}
         <div className="mb-7 text-center">
           <div className="flex items-center justify-center gap-2 mb-1.5">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#1d3461]/90 to-[#2a1f5f]/90 border border-slate-500 flex items-center justify-center">
@@ -604,14 +573,10 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
         </div>
 
         <div className="w-full max-w-md space-y-4">
-
-          {/* Active Markets — full engine */}
           <div className="rounded-xl border border-[#c9a84c]/15 bg-slate-800 overflow-hidden">
             <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-600">
               <span className="w-1.5 h-1.5 rounded-full bg-[#c9a84c]/60 animate-pulse" />
-              <span className="text-[8px] font-mono uppercase tracking-[0.18em] text-[#c9a84c]/60">
-                Full Engine Active
-              </span>
+              <span className="text-[8px] font-mono uppercase tracking-[0.18em] text-[#c9a84c]/60">Full Engine Active</span>
             </div>
             <div className="grid grid-cols-2 divide-x divide-slate-600">
               {[
@@ -628,11 +593,8 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
             </div>
           </div>
 
-          {/* Scan commands */}
           <div>
-            <p className="text-[8px] font-mono uppercase tracking-[0.18em] text-gray-500 mb-2 pl-1">
-              Scan Commands
-            </p>
+            <p className="text-[8px] font-mono uppercase tracking-[0.18em] text-gray-500 mb-2 pl-1">Scan Commands</p>
             <div className="grid grid-cols-2 gap-1.5">
               {[
                 { cmd: "engine scan", desc: "bias + zones for EURUSD & NAS100" },
@@ -648,11 +610,8 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
             </div>
           </div>
 
-          {/* Intelligence queries */}
           <div>
-            <p className="text-[8px] font-mono uppercase tracking-[0.18em] text-gray-500 mb-2 pl-1">
-              Intelligence Queries
-            </p>
+            <p className="text-[8px] font-mono uppercase tracking-[0.18em] text-gray-500 mb-2 pl-1">Intelligence Queries</p>
             <div className="grid grid-cols-2 gap-1.5">
               {[
                 { cmd: "EURUSD rejecting supply", desc: "reference zone + expectation" },
@@ -668,7 +627,6 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
             </div>
           </div>
 
-          {/* Engine note */}
           <div className="rounded-lg border border-slate-600 px-3 py-2.5 bg-slate-900">
             <p className="text-[9px] font-mono text-gray-500 leading-relaxed">
               <span className="text-gray-400">Not a signal engine.</span>{" "}
@@ -676,7 +634,6 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
               Execution via WhisperZonez + KVFX v3 confirmation.
             </p>
           </div>
-
         </div>
 
         <p className="mt-6 text-[9px] font-mono text-[#1a2540] tracking-widest uppercase">
@@ -686,7 +643,6 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
     );
   }
 
-  // Other modes — compact hint cards
   const hints: Record<Exclude<AssistantMode, "chat">, { icon: string; title: string; subs: string[] }> = {
     chart: {
       icon: "◈",
@@ -718,25 +674,15 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
   );
 }
 
-// Right-column thesis summary (desktop only)
-function ThesisSummaryColumn({
-  thesis,
-  onEdit,
-}: {
-  thesis: ThesisContext | null;
-  onEdit: () => void;
-}) {
+function ThesisSummaryColumn({ thesis, onEdit }: { thesis: ThesisContext | null; onEdit: () => void }) {
   const hasData = thesis && Object.values(thesis).some((v) => v !== "");
 
   return (
     <div className="hidden xl:flex w-[272px] flex-shrink-0 flex-col border-l border-slate-600 bg-slate-800">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-600">
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full ${hasData ? "bg-violet-400 animate-pulse" : "bg-[#253650]"}`} />
-          <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-gray-400">
-            KVFX Thesis
-          </span>
+          <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-gray-400">KVFX Thesis</span>
         </div>
         <button
           onClick={onEdit}
@@ -745,8 +691,6 @@ function ThesisSummaryColumn({
           {hasData ? "Edit" : "Set Thesis"}
         </button>
       </div>
-
-      {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {!hasData ? (
           <div className="text-center py-8">
@@ -754,10 +698,7 @@ function ThesisSummaryColumn({
             <p className="text-xs text-gray-500 font-mono leading-relaxed">
               Set your macro thesis to align AI responses with your KVFX worldview.
             </p>
-            <button
-              onClick={onEdit}
-              className="mt-4 px-3 py-1.5 text-[10px] text-[#c9a84c]/70 border border-[#c9a84c]/20 rounded-lg hover:bg-[#c9a84c]/8 transition-colors"
-            >
+            <button onClick={onEdit} className="mt-4 px-3 py-1.5 text-[10px] text-[#c9a84c]/70 border border-[#c9a84c]/20 rounded-lg hover:bg-[#c9a84c]/8 transition-colors">
               Set Thesis →
             </button>
           </div>
@@ -777,9 +718,7 @@ function ThesisSummaryColumn({
               .filter((f) => f.value)
               .map((f) => (
                 <div key={f.label}>
-                  <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-500 mb-1">
-                    {f.label}
-                  </p>
+                  <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-500 mb-1">{f.label}</p>
                   <p className="text-xs text-gray-300 leading-relaxed font-mono">{f.value}</p>
                 </div>
               ))}
@@ -790,16 +729,7 @@ function ThesisSummaryColumn({
   );
 }
 
-// Saved analyses panel (left overlay)
-function SavedPanel({
-  analyses,
-  onClose,
-  onDelete,
-}: {
-  analyses: SavedAnalysis[];
-  onClose: () => void;
-  onDelete: (id: string) => void;
-}) {
+function SavedPanel({ analyses, onClose, onDelete }: { analyses: SavedAnalysis[]; onClose: () => void; onDelete: (id: string) => void }) {
   return (
     <>
       <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-40" onClick={onClose} />
@@ -811,16 +741,12 @@ function SavedPanel({
               {analyses.length} {analyses.length === 1 ? "item" : "items"}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-200 hover:bg-slate-700 transition-all"
-          >
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-200 hover:bg-slate-700 transition-all">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {analyses.length === 0 && (
             <div className="text-center py-12">
@@ -829,10 +755,7 @@ function SavedPanel({
             </div>
           )}
           {analyses.map((a) => (
-            <div
-              key={a.id}
-              className="group bg-slate-800 border border-slate-600 rounded-xl p-3.5 hover:border-slate-500 transition-colors duration-150"
-            >
+            <div key={a.id} className="group bg-slate-800 border border-slate-600 rounded-xl p-3.5 hover:border-slate-500 transition-colors duration-150">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
                   <span className={`text-[8px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
@@ -840,24 +763,12 @@ function SavedPanel({
                     a.mode === "trade-review" ? "text-amber-400/80 bg-amber-500/10 border-amber-500/20" :
                     a.mode === "thesis" ? "text-violet-400/80 bg-violet-500/10 border-violet-500/20" :
                     "text-gray-400 bg-slate-700 border-slate-600"
-                  }`}>
-                    {a.mode}
-                  </span>
+                  }`}>{a.mode}</span>
                   <span className="text-[8px] text-gray-500 font-mono uppercase">{a.tradingMode}</span>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => navigator.clipboard.writeText(a.content)}
-                    className="text-[9px] text-gray-400 hover:text-gray-200 px-1.5 py-0.5 rounded hover:bg-slate-700 transition-all"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    onClick={() => onDelete(a.id)}
-                    className="text-[9px] text-gray-400 hover:text-red-400/70 px-1.5 py-0.5 rounded hover:bg-slate-700 transition-all"
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => navigator.clipboard.writeText(a.content)} className="text-[9px] text-gray-400 hover:text-gray-200 px-1.5 py-0.5 rounded hover:bg-slate-700 transition-all">Copy</button>
+                  <button onClick={() => onDelete(a.id)} className="text-[9px] text-gray-400 hover:text-red-400/70 px-1.5 py-0.5 rounded hover:bg-slate-700 transition-all">✕</button>
                 </div>
               </div>
               <p className="text-xs text-gray-300 leading-relaxed line-clamp-3">{a.content}</p>
@@ -872,16 +783,7 @@ function SavedPanel({
   );
 }
 
-// ── Main ChatUI ───────────────────────────────────────────
-
-interface ChatUIProps {
-  userEmail?: string;
-  userId?: string;
-  userTier?: "beta" | "pro";
-  betaExpiresAt?: string | null;
-}
-
-// ── Beta Expiry Helpers ───────────────────────────────────────────────────────
+// ── Beta Helpers ──────────────────────────────────────────
 
 function getBetaDaysRemaining(expiresAt: string | null | undefined): number | null {
   if (!expiresAt) return null;
@@ -889,39 +791,29 @@ function getBetaDaysRemaining(expiresAt: string | null | undefined): number | nu
   return Math.ceil(ms / (1000 * 60 * 60 * 24));
 }
 
-// ── Beta Banner ───────────────────────────────────────────────────────────────
-
 function BetaBanner({ daysRemaining }: { daysRemaining: number }) {
   const urgent = daysRemaining <= 3;
   const bg   = urgent ? "bg-red-500/15 border-red-500/30" : "bg-[#c9a84c]/10 border-[#c9a84c]/25";
   const text = urgent ? "text-red-300" : "text-[#c9a84c]";
   const dot  = urgent ? "bg-red-400 animate-pulse" : "bg-[#c9a84c]/60";
-
   return (
     <div className={`flex items-center justify-between px-4 py-2 border-b text-[10px] font-mono ${bg}`}>
       <div className="flex items-center gap-2">
         <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-        <span className={`uppercase tracking-widest font-semibold ${text}`}>
-          BETA ACCESS
-        </span>
+        <span className={`uppercase tracking-widest font-semibold ${text}`}>BETA ACCESS</span>
         <span className="text-gray-400">—</span>
-        <span className={`${text}`}>
-          {daysRemaining === 1 ? "1 day remaining" : `${daysRemaining} days remaining`}
-        </span>
+        <span className={text}>{daysRemaining === 1 ? "1 day remaining" : `${daysRemaining} days remaining`}</span>
       </div>
       <span className="text-gray-500 tracking-wide">Full engine · All pairs · All markets</span>
     </div>
   );
 }
 
-// ── Beta Expired Modal ────────────────────────────────────────────────────────
-
 function BetaExpiredModal() {
   const router = useRouter();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm">
       <div className="w-full max-w-sm bg-slate-800 border border-slate-600 rounded-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-slate-600">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#1d3461] to-[#2a1f5f] border border-slate-500 flex items-center justify-center">
@@ -937,16 +829,11 @@ function BetaExpiredModal() {
             <span className="text-[9px] font-mono uppercase tracking-widest text-red-400">Access Expired</span>
           </div>
         </div>
-
-        {/* Body */}
         <div className="px-6 py-5 space-y-4">
           <div>
             <h2 className="text-lg font-bold text-gray-100 leading-tight">Your Beta Access Has Ended</h2>
-            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-              Upgrade to continue using the KVFX Intelligence Engine — full access to all markets, scans, and AI analysis.
-            </p>
+            <p className="text-sm text-gray-400 mt-1 leading-relaxed">Upgrade to continue using the KVFX Intelligence Engine.</p>
           </div>
-
           <div className="space-y-2 text-[10px] font-mono text-gray-400">
             {["All forex, indices, metals, crypto", "Unlimited AI analysis sessions", "Market scans across all pairs", "Full KVFX v3 + WhisperZonez engine"].map((f) => (
               <div key={f} className="flex items-center gap-2">
@@ -955,17 +842,22 @@ function BetaExpiredModal() {
               </div>
             ))}
           </div>
-
-          <button
-            onClick={() => router.push("/upgrade")}
-            className="w-full py-3 rounded-xl bg-[#c9a84c]/20 hover:bg-[#c9a84c]/30 text-[#c9a84c] border border-[#c9a84c]/35 text-sm font-semibold tracking-wide transition-all duration-150"
-          >
+          <button onClick={() => router.push("/upgrade")} className="w-full py-3 rounded-xl bg-[#c9a84c]/20 hover:bg-[#c9a84c]/30 text-[#c9a84c] border border-[#c9a84c]/35 text-sm font-semibold tracking-wide transition-all duration-150">
             Upgrade Access →
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+// ── Main ChatUI ───────────────────────────────────────────
+
+interface ChatUIProps {
+  userEmail?: string;
+  userId?: string;
+  userTier?: "beta" | "pro";
+  betaExpiresAt?: string | null;
 }
 
 export default function ChatUI({ userEmail = "", userId: _userId = "", userTier = "beta", betaExpiresAt = null }: ChatUIProps) {
@@ -1009,8 +901,6 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Tracks the latest input value synchronously — avoids stale closure reads on
-  // mobile where touchend fires before React has committed the onChange re-render.
   const latestInputRef = useRef("");
 
   // ── Effects ──
@@ -1062,24 +952,12 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
     persistSaved(updated);
   }, [savedAnalyses]);
 
-  // Single dispatch entry point for all send paths.
-  // Accepts an optional textOverride so quick chips and forms can pass their
-  // value directly without relying on React state having flushed yet.
-  // For typed input, reads latestInputRef (always current) instead of the
-  // `input` state — eliminates the stale-closure race on mobile touchend.
   const sendMessage = useCallback(async (textOverride?: string) => {
-    // Determine the text to send: explicit override beats ref beats state
     const text = (textOverride !== undefined ? textOverride : latestInputRef.current).trim();
     if ((!text && !pendingImage) || isLoading) return;
 
-    // Snapshot image before clearing state
     const imgToSend = pendingImage?.dataUrl;
 
-    // Determine effective mode at dispatch time — do not trust assistantMode state
-    // blindly. "chart" mode is only meaningful when an image is actually attached.
-    // If no image is present (including after a prior image was sent and cleared),
-    // downgrade "chart" → "chat" so the backend receives the correct prompt context.
-    // Explicit user-selected modes ("trade-review", "thesis") are always preserved.
     const effectiveMode: AssistantMode = imgToSend
       ? "chart"
       : assistantMode === "chart"
@@ -1095,28 +973,22 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
     };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Clear input synchronously — both ref and state — before any async work
     latestInputRef.current = "";
     setInput("");
     setPendingImage(null);
     setIsTradePlanOpen(false);
     setIsLoading(true);
 
-    // Reset assistantMode back to "chat" whenever it was "chart" — prevents the
-    // mode from staying stuck after an image is consumed, so the next text-only
-    // message doesn't inherit chart context.
     if (assistantMode === "chart") setAssistantMode("chat");
 
     try {
-      // Build payload with explicit null for every optional field so JSON.stringify
-      // never omits keys. `undefined` values are silently dropped by JSON.stringify,
-      // which produces different payloads on mobile vs desktop depending on whether
-      // state has flushed. Using null guarantees a complete, consistent body.
-      // Client-side command hint — runs on raw text before JSON serialization.
-      // Mobile keyboards can insert Unicode non-breaking spaces (\u00A0) that may
-      // survive encoding and cause backend string matching to miss. This boolean flag
-      // provides a redundant detection layer: if the client sees a scan command, the
-      // backend promotes to COMMAND PATH regardless of its own string check result.
+      // ── Fetch live chart context from MCP bridge ──────────────
+      let liveChartContext = "";
+      try {
+        const chart = await getLiveChartContext();
+        if (chart.isLive) liveChartContext = chart.mcpContext;
+      } catch { /* MCP bridge offline — continue without it */ }
+
       const _cn = (t: string) =>
         t.toLowerCase().replace(/[^\S\x20]/g, " ").replace(/\s+/g, " ").trim();
       const _cl = [
@@ -1129,16 +1001,17 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
       const commandHint = _cl.some((c) => _cn(text).includes(c));
 
       const payload = {
-        message:        text,
-        sessionId:      sessionId ?? null,
-        tradingMode:    tradingMode,
-        assistantMode:  effectiveMode,
-        image:          imgToSend ?? null,
-        thesisContext:  thesisContext ?? null,
-        timeframe:      selectedTimeframe || null,
-        tradingSession: selectedSession  || null,
-        isTradeInsight: effectiveMode === "trade-review" || effectiveMode === "chart",
+        message:          text,
+        sessionId:        sessionId ?? null,
+        tradingMode,
+        assistantMode:    effectiveMode,
+        image:            imgToSend ?? null,
+        thesisContext:    thesisContext ?? null,
+        timeframe:        selectedTimeframe || null,
+        tradingSession:   selectedSession  || null,
+        isTradeInsight:   effectiveMode === "trade-review" || effectiveMode === "chart",
         commandHint,
+        liveChartContext: liveChartContext || null,   // ← injected MCP data
       };
 
       const res = await fetch("/api/chat", {
@@ -1180,8 +1053,6 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
     } finally {
       setIsLoading(false);
     }
-  // `input` intentionally omitted — latestInputRef is always current without
-  // triggering re-renders, so sendMessage never captures a stale input value.
   }, [isLoading, pendingImage, sessionId, tradingMode, assistantMode, thesisContext, selectedTimeframe, selectedSession]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1200,10 +1071,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
     setPendingImage(null);
   };
 
-  const handleViewChange = (view: SidebarView) => {
-    setSidebarView(view);
-  };
-
+  const handleViewChange = (view: SidebarView) => setSidebarView(view);
   const activeThesis = !!(thesisContext && Object.values(thesisContext).some((v) => v !== ""));
   const amc = ASSISTANT_MODE_CONFIG[assistantMode];
 
@@ -1211,32 +1079,12 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
   return (
     <div className="flex h-screen bg-slate-900 text-gray-100 overflow-hidden">
       {isBetaExpired && <BetaExpiredModal />}
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/jpg,image/webp"
-        className="hidden"
-        onChange={handleImageSelect}
-      />
-
-      {/* Thesis Panel overlay */}
-      <ThesisPanel
-        open={isThesisPanelOpen}
-        onClose={() => setIsThesisPanelOpen(false)}
-        onThesisChange={(t) => setThesisContext(t)}
-      />
-
-      {/* Saved analyses overlay */}
+      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" className="hidden" onChange={handleImageSelect} />
+      <ThesisPanel open={isThesisPanelOpen} onClose={() => setIsThesisPanelOpen(false)} onThesisChange={(t) => setThesisContext(t)} />
       {sidebarView === "saved" && (
-        <SavedPanel
-          analyses={savedAnalyses}
-          onClose={() => setSidebarView("chat")}
-          onDelete={handleDeleteSaved}
-        />
+        <SavedPanel analyses={savedAnalyses} onClose={() => setSidebarView("chat")} onDelete={handleDeleteSaved} />
       )}
 
-      {/* ── Left Sidebar ─────────────────────────────────── */}
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -1247,12 +1095,10 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
         hasThesis={activeThesis}
       />
 
-      {/* ── Main Column ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* ─ Top bar ─ */}
         <div className="flex-shrink-0 border-b border-slate-600 bg-slate-800">
-          {/* Beta countdown banner */}
           {userTier === "beta" && betaDaysRemaining !== null && betaDaysRemaining > 0 && (
             <BetaBanner daysRemaining={betaDaysRemaining} />
           )}
@@ -1267,9 +1113,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                   key={m}
                   onClick={() => setAssistantMode(m)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium tracking-wide transition-all duration-150 border ${
-                    active
-                      ? `${cfg.activeBg} ${cfg.activeText} ${cfg.activeBorder}`
-                      : "text-gray-400 border-transparent hover:text-gray-200 hover:bg-slate-800"
+                    active ? `${cfg.activeBg} ${cfg.activeText} ${cfg.activeBorder}` : "text-gray-400 border-transparent hover:text-gray-200 hover:bg-slate-800"
                   }`}
                 >
                   {m === "chart" && (
@@ -1285,36 +1129,27 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
               );
             })}
 
-            {/* Right side — tier badge + live status + user + sign out + clear */}
+            {/* Right side controls */}
             <div className="ml-auto flex items-center gap-2">
+              {/* ── LIVE CHART BADGE — MCP integration ── */}
+              <LiveChartBadge />
+
               {userTier === "pro" ? (
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400/70 text-[8px] font-mono uppercase tracking-widest">
-                  Pro
-                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-400/70 text-[8px] font-mono uppercase tracking-widest">Pro</span>
               ) : (
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#c9a84c]/10 border border-[#c9a84c]/20 text-[#c9a84c]/70 text-[8px] font-mono uppercase tracking-widest">
-                  Beta
-                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#c9a84c]/10 border border-[#c9a84c]/20 text-[#c9a84c]/70 text-[8px] font-mono uppercase tracking-widest">Beta</span>
               )}
               <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-500/8 border border-emerald-500/15">
                 <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                 <span className="text-[9px] font-mono uppercase tracking-wider text-emerald-400/60">Live</span>
               </div>
               {userEmail && (
-                <span className="hidden md:block text-[9px] font-mono text-gray-500 max-w-[130px] truncate">
-                  {userEmail}
-                </span>
+                <span className="hidden md:block text-[9px] font-mono text-gray-500 max-w-[130px] truncate">{userEmail}</span>
               )}
-              <button
-                onClick={handleSignOut}
-                className="text-[10px] text-gray-400 hover:text-red-400/70 px-2.5 py-1 rounded border border-slate-600 hover:border-red-500/20 bg-transparent transition-all duration-150"
-              >
+              <button onClick={handleSignOut} className="text-[10px] text-gray-400 hover:text-red-400/70 px-2.5 py-1 rounded border border-slate-600 hover:border-red-500/20 bg-transparent transition-all duration-150">
                 Sign Out
               </button>
-              <button
-                onClick={clearChat}
-                className="text-[10px] text-gray-400 hover:text-gray-200 px-2.5 py-1 rounded border border-slate-600 hover:border-slate-500 bg-transparent transition-all duration-150"
-              >
+              <button onClick={clearChat} className="text-[10px] text-gray-400 hover:text-gray-200 px-2.5 py-1 rounded border border-slate-600 hover:border-slate-500 bg-transparent transition-all duration-150">
                 Clear
               </button>
             </div>
@@ -1322,7 +1157,6 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
 
           {/* Row 2 — trading context */}
           <div className="flex items-center gap-2 px-4 py-2 flex-wrap">
-            {/* Trading mode pills */}
             <div className="flex items-center gap-1">
               <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-500 mr-1.5">Mode</span>
               {(Object.keys(TRADING_MODE_CONFIG) as TradingMode[]).map((m) => {
@@ -1333,9 +1167,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                     key={m}
                     onClick={() => setTradingMode(m)}
                     className={`px-2.5 py-1 rounded-md text-[10px] font-semibold border transition-all duration-150 ${
-                      active
-                        ? `${cfg.activeBg} ${cfg.activeText} ${cfg.activeBorder}`
-                        : "text-gray-500 border-slate-600 hover:border-slate-500 hover:text-gray-400 bg-transparent"
+                      active ? `${cfg.activeBg} ${cfg.activeText} ${cfg.activeBorder}` : "text-gray-500 border-slate-600 hover:border-slate-500 hover:text-gray-400 bg-transparent"
                     }`}
                   >
                     {cfg.label}
@@ -1346,46 +1178,35 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
 
             <div className="w-px h-3.5 bg-[#1a2540] hidden sm:block" />
 
-            {/* Timeframe */}
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-500">TF</span>
-              <select
-                value={selectedTimeframe}
-                onChange={(e) => setSelectedTimeframe(e.target.value)}
+              <select value={selectedTimeframe} onChange={(e) => setSelectedTimeframe(e.target.value)}
                 className="bg-slate-800 border border-slate-600 rounded-md text-[10px] text-gray-400 px-2 py-0.5 focus:outline-none focus:border-slate-500 cursor-pointer hover:border-slate-500 transition-colors appearance-none pr-5"
-                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234a5a78'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 4px center", backgroundSize: "10px" }}
-              >
+                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234a5a78'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 4px center", backgroundSize: "10px" }}>
                 <option value="">Any</option>
                 {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
               </select>
             </div>
 
-            {/* Session */}
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-gray-500">Session</span>
-              <select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
+              <select value={selectedSession} onChange={(e) => setSelectedSession(e.target.value)}
                 className="bg-slate-800 border border-slate-600 rounded-md text-[10px] text-gray-400 px-2 py-0.5 focus:outline-none focus:border-slate-500 cursor-pointer hover:border-slate-500 transition-colors appearance-none pr-5"
-                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234a5a78'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 4px center", backgroundSize: "10px" }}
-              >
+                style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234a5a78'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 4px center", backgroundSize: "10px" }}>
                 <option value="">Any</option>
                 {SESSIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
 
-            {/* Mode hint */}
             <div className="ml-auto hidden md:block">
               <span className={`text-[9px] font-mono ${amc.activeText} opacity-50`}>{amc.hint}</span>
             </div>
           </div>
         </div>
 
-        {/* ─ Content area (messages + right thesis panel) ─ */}
+        {/* ─ Content area ─ */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Messages + Input */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto">
               {messages.length <= 1 && !isLoading ? (
                 <EmptyState assistantMode={assistantMode} />
@@ -1409,32 +1230,19 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
             {/* ─ Input area ─ */}
             <div className="flex-shrink-0 border-t border-slate-600 bg-slate-800 px-4 py-3">
               <div className="max-w-3xl mx-auto space-y-2">
-                {/* Trade plan form */}
                 {isTradePlanOpen && (
                   <TradePlanForm
-                    onSubmit={(text) => {
-                      latestInputRef.current = text;
-                      setInput(text);
-                      setAssistantMode("trade-review");
-                    }}
+                    onSubmit={(text) => { latestInputRef.current = text; setInput(text); setAssistantMode("trade-review"); }}
                     onClose={() => setIsTradePlanOpen(false)}
                   />
                 )}
 
-                {/* Image preview */}
                 {pendingImage && (
                   <div className="flex items-center gap-3 px-3 py-2.5 bg-slate-800 border border-slate-600 rounded-xl">
                     <div className="relative flex-shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={pendingImage.previewUrl}
-                        alt="Chart"
-                        className="w-14 h-14 object-cover rounded-lg border border-slate-600"
-                      />
-                      <button
-                        onClick={() => setPendingImage(null)}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors"
-                      >
+                      <img src={pendingImage.previewUrl} alt="Chart" className="w-14 h-14 object-cover rounded-lg border border-slate-600" />
+                      <button onClick={() => setPendingImage(null)} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
                         <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -1442,24 +1250,17 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                     </div>
                     <div>
                       <p className="text-xs text-gray-300 font-medium">Chart ready for analysis</p>
-                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                        {assistantMode === "chart" ? "Chart Analysis mode active" : "Add a note or send as-is"}
-                      </p>
+                      <p className="text-[9px] text-gray-400 font-mono mt-0.5">{assistantMode === "chart" ? "Chart Analysis mode active" : "Add a note or send as-is"}</p>
                     </div>
                   </div>
                 )}
 
-                {/* Input container */}
                 <div className="bg-slate-800 border border-slate-600 rounded-2xl overflow-hidden focus-within:border-slate-400 shadow-md transition-colors duration-150">
-                  {/* Textarea */}
                   <div className="px-4 pt-3 pb-1">
                     <textarea
                       ref={textareaRef}
                       value={input}
-                      onChange={(e) => {
-                        latestInputRef.current = e.target.value;
-                        setInput(e.target.value);
-                      }}
+                      onChange={(e) => { latestInputRef.current = e.target.value; setInput(e.target.value); }}
                       onKeyDown={handleKeyDown}
                       disabled={isBetaExpired}
                       placeholder={
@@ -1475,15 +1276,11 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                     />
                   </div>
 
-                  {/* Toolbar */}
                   <div className="flex items-center gap-1.5 px-3 pb-2.5 pt-1 border-t border-[#141e2e]">
-                    {/* Chart upload */}
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-mono border transition-all duration-150 ${
-                        pendingImage
-                          ? "bg-sky-500/12 text-sky-400 border-sky-500/25"
-                          : "text-gray-400 border-slate-600 hover:border-slate-500 hover:text-gray-200 hover:bg-slate-700"
+                        pendingImage ? "bg-sky-500/12 text-sky-400 border-sky-500/25" : "text-gray-400 border-slate-600 hover:border-slate-500 hover:text-gray-200 hover:bg-slate-700"
                       }`}
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1492,13 +1289,10 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                       <span className="hidden sm:inline">Chart</span>
                     </button>
 
-                    {/* Trade plan */}
                     <button
                       onClick={() => setIsTradePlanOpen(!isTradePlanOpen)}
                       className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-mono border transition-all duration-150 ${
-                        isTradePlanOpen
-                          ? "bg-[#c9a84c]/12 text-[#c9a84c] border-[#c9a84c]/25"
-                          : "text-gray-400 border-slate-600 hover:border-slate-500 hover:text-gray-200 hover:bg-slate-700"
+                        isTradePlanOpen ? "bg-[#c9a84c]/12 text-[#c9a84c] border-[#c9a84c]/25" : "text-gray-400 border-slate-600 hover:border-slate-500 hover:text-gray-200 hover:bg-slate-700"
                       }`}
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1507,29 +1301,20 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                       <span className="hidden sm:inline">Plan</span>
                     </button>
 
-                    {/* Active mode indicator */}
                     <div className={`hidden sm:flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-mono uppercase tracking-wider border ${amc.activeBg} ${amc.activeText} ${amc.activeBorder}`}>
                       {amc.label}
                     </div>
 
-                    {/* Spacer */}
                     <div className="flex-1" />
+                    <span className="hidden lg:block text-[9px] font-mono text-[#1a2540] mr-2">↵ send  ⇧↵ newline</span>
 
-                    {/* Keyboard hint */}
-                    <span className="hidden lg:block text-[9px] font-mono text-[#1a2540] mr-2">
-                      ↵ send  ⇧↵ newline
-                    </span>
-
-                    {/* Send button */}
                     <button
                       onClick={() => sendMessage()}
                       disabled={isLoading || isBetaExpired}
                       className={`flex items-center justify-center w-8 h-8 rounded-lg border transition-all duration-150 ${
-                        isLoading || isBetaExpired
-                          ? "bg-slate-800 text-gray-500 border-slate-600 cursor-not-allowed"
-                          : (!input.trim() && !pendingImage)
-                          ? "bg-slate-800 text-gray-500 border-slate-600"
-                          : "bg-[#c9a84c]/15 hover:bg-[#c9a84c]/25 text-[#c9a84c] border-[#c9a84c]/25"
+                        isLoading || isBetaExpired ? "bg-slate-800 text-gray-500 border-slate-600 cursor-not-allowed" :
+                        (!input.trim() && !pendingImage) ? "bg-slate-800 text-gray-500 border-slate-600" :
+                        "bg-[#c9a84c]/15 hover:bg-[#c9a84c]/25 text-[#c9a84c] border-[#c9a84c]/25"
                       }`}
                     >
                       {isLoading ? (
@@ -1543,7 +1328,6 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                   </div>
                 </div>
 
-                {/* Command hint chips — shown when input is empty */}
                 {!input.trim() && !pendingImage && !isLoading && assistantMode === "chat" && (
                   <div className="flex items-center gap-1.5 flex-wrap pt-1">
                     <span className="text-[8px] font-mono text-[#1a2540] uppercase tracking-widest mr-0.5">Try:</span>
@@ -1562,11 +1346,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
             </div>
           </div>
 
-          {/* ─ Right Thesis Summary (xl+) ─ */}
-          <ThesisSummaryColumn
-            thesis={thesisContext}
-            onEdit={() => setIsThesisPanelOpen(true)}
-          />
+          <ThesisSummaryColumn thesis={thesisContext} onEdit={() => setIsThesisPanelOpen(true)} />
         </div>
       </div>
     </div>
