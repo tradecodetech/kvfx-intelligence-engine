@@ -1,15 +1,14 @@
 ﻿import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL!, token: process.env.UPSTASH_REDIS_REST_TOKEN! });
-const REDIS_KEY = "kvfx:chart-state";
 export async function GET() {
   try {
-    const raw = await redis.get(REDIS_KEY);
-    if (!raw) return NextResponse.json({ success: false, error: "No chart state in Redis. Is the MCP bridge running?" }, { status: 404 });
-    const state = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return NextResponse.json({ ...state, fromCache: true });
+    const [rawChart, rawStructure] = await Promise.all([redis.get("kvfx:chart-state"), redis.get("kvfx:structure")]);
+    if (!rawChart) return NextResponse.json({ success: false, error: "No chart state in Redis." }, { status: 404 });
+    const chart = typeof rawChart === "string" ? JSON.parse(rawChart) : rawChart;
+    const structure = rawStructure ? (typeof rawStructure === "string" ? JSON.parse(rawStructure) : rawStructure) : null;
+    return NextResponse.json({ ...chart, structure: structure ?? null, fromCache: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : "Unknown error" }, { status: 500 });
   }
 }
