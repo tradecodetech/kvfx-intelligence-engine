@@ -1,13 +1,13 @@
-/**
- * /api/chat — KVFX Intelligence Engine API Route
+﻿/**
+ * /api/chat â€” KVFX Intelligence Engine API Route
  *
  * Routing architecture:
- *   COMMAND PATH  — keyword-triggered actions (scan, bias board, etc.)
+ *   COMMAND PATH  â€” keyword-triggered actions (scan, bias board, etc.)
  *                   Runs immediately after validation, before any async enrichment.
  *                   Bypasses: memory retrieval, pair detection, live price, structure
  *                   analysis, intelligence card, auto trade logging.
  *
- *   ANALYSIS PATH — descriptive inputs that contain pair / bias / structure context.
+ *   ANALYSIS PATH â€” descriptive inputs that contain pair / bias / structure context.
  *                   Runs the full pipeline: memory, pair+price, structure insight,
  *                   intelligence card, auto logging.
  */
@@ -39,7 +39,7 @@ const VALID_ASSISTANT_MODES = ["chat", "chart", "trade-review", "thesis"];
 
 export async function POST(req: NextRequest) {
   try {
-    // ── AUTH ──────────────────────────────────────────────────────────────────
+    // â”€â”€ AUTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const supabaseAuth = await createSupabaseServer();
     const { data: { user } } = await supabaseAuth.auth.getUser();
 
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     const userTier = (profile?.tier as "beta" | "pro") ?? "beta";
     const authedUserId = user.id;
 
-    // ── BODY PARSING ──────────────────────────────────────────────────────────
+    // â”€â”€ BODY PARSING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const body = await req.json();
 
     const {
@@ -73,9 +73,10 @@ export async function POST(req: NextRequest) {
       tradingSession,
       isTradeInsight = false,
       commandHint = false,
+      liveChartContext = null,
     } = body;
 
-    // ── VALIDATION ────────────────────────────────────────────────────────────
+    // â”€â”€ VALIDATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const hasMessage =
       message && typeof message === "string" && message.trim().length > 0;
 
@@ -110,8 +111,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── COMMAND DETECTION ─────────────────────────────────────────────────────
-    // Runs immediately after validation — before session, memory, pair detection,
+    // â”€â”€ COMMAND DETECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Runs immediately after validation â€” before session, memory, pair detection,
     // or any structure analysis. Commands are keyword-triggered actions that do
     // not carry pair / bias / timeframe context and must never be routed through
     // the structure pipeline (which would produce low-alignment noise responses).
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
     // cause isScanCommand to return false on the server-side string.
     const isCommand = hasMessage && (commandHint === true || isScanCommand(message));
 
-    // Diagnostic log — visible in the Next.js terminal on every request.
+    // Diagnostic log â€” visible in the Next.js terminal on every request.
     // Shows the raw message bytes so Unicode space issues become obvious.
     // Remove once mobile command routing is confirmed stable.
     console.log("[ROUTE] incoming:", JSON.stringify({
@@ -132,28 +133,28 @@ export async function POST(req: NextRequest) {
       assistantMode,
     }));
 
-    // ── SESSION ───────────────────────────────────────────────────────────────
-    // Shared by both paths — maintains conversation continuity.
+    // â”€â”€ SESSION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Shared by both paths â€” maintains conversation continuity.
     let session = sessionId ? await getSession(sessionId) : null;
     if (!session) {
       session = await createSession(authedUserId, tradingMode);
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // COMMAND PATH
     // No memory retrieval. No pair detection. No structure analysis.
     // Dispatches directly to the scan engine with the appropriate prompt.
-    // ═════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     if (isCommand) {
       const scanPairs = getScanPairsForTier(userTier);
 
-      // Fetch live prices for all scan pairs in parallel — no cache, no-store —
+      // Fetch live prices for all scan pairs in parallel â€” no cache, no-store â€”
       // before building the prompt so the AI receives current price levels.
       let scanLivePrices: Record<string, number | null> = {};
       try {
         scanLivePrices = await fetchLivePricesForScan(scanPairs);
       } catch (err) {
-        console.warn("⚠️ Scan price fetch failed — continuing without prices:", err);
+        console.warn("âš ï¸ Scan price fetch failed â€” continuing without prices:", err);
       }
 
       const scanPrompt = buildScanPrompt(message, tradingMode, scanPairs, scanLivePrices);
@@ -176,11 +177,11 @@ export async function POST(req: NextRequest) {
         scanResults = parseScanResponse(content);
         if (scanResults) {
           console.log(
-            `📡 SCAN COMPLETE: ${scanResults.pairsScanned.length} pairs — top: ${scanResults.topPair}`
+            `ðŸ“¡ SCAN COMPLETE: ${scanResults.pairsScanned.length} pairs â€” top: ${scanResults.topPair}`
           );
         }
       } catch (err) {
-        console.warn("⚠️ Scan parse failed:", err);
+        console.warn("âš ï¸ Scan parse failed:", err);
       }
 
       const storedUserMessage = message.trim();
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
           appendToSession(session.sessionId, "assistant", content),
         ]);
       } catch (err) {
-        console.warn("⚠️ Session cache skipped:", err);
+        console.warn("âš ï¸ Session cache skipped:", err);
       }
 
       // Chat log
@@ -214,7 +215,7 @@ export async function POST(req: NextRequest) {
           },
         ]);
       } catch (err) {
-        console.warn("⚠️ Chat logging failed:", err);
+        console.warn("âš ï¸ Chat logging failed:", err);
       }
 
       console.log("[COMMAND]", JSON.stringify({
@@ -234,10 +235,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // ANALYSIS PATH
     // Full pipeline for descriptive requests carrying pair / bias / structure.
-    // ═════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     // MEMORY CONTEXT
     let memoryContext = "";
@@ -246,7 +247,7 @@ export async function POST(req: NextRequest) {
         memoryContext = await retrieveRelevantContext(message, authedUserId);
       }
     } catch (err) {
-      console.warn("⚠️ Memory retrieval skipped:", err);
+      console.warn("âš ï¸ Memory retrieval skipped:", err);
     }
 
     // PAIR DETECTION + LIVE PRICE (before AI call)
@@ -257,7 +258,7 @@ export async function POST(req: NextRequest) {
       try {
         preLivePrice = await fetchLivePrice(prePair);
       } catch (err) {
-        console.warn("⚠️ Pre-AI live price fetch failed:", err);
+        console.warn("âš ï¸ Pre-AI live price fetch failed:", err);
       }
     }
 
@@ -277,6 +278,7 @@ export async function POST(req: NextRequest) {
       memoryContext,
       livePrice: preLivePrice,
       detectedPair: prePair,
+      liveChartContext: liveChartContext || null,
     });
 
     // BETA LOGGING
@@ -285,10 +287,10 @@ export async function POST(req: NextRequest) {
       const detectedBias = detectBias(message);
       console.log("[ANALYSIS]", JSON.stringify({
         message: message.trim().slice(0, 80),
-        detectedPair: prePair ?? "—",
-        detectedBias: detectedBias ?? "—",
-        livePrice: preLivePrice ?? "—",
-        confidence: insight?.alignmentScore ?? "—",
+        detectedPair: prePair ?? "â€”",
+        detectedBias: detectedBias ?? "â€”",
+        livePrice: preLivePrice ?? "â€”",
+        confidence: insight?.alignmentScore ?? "â€”",
         mode: assistantMode,
         tradingMode,
       }));
@@ -296,7 +298,7 @@ export async function POST(req: NextRequest) {
 
     // MESSAGE STORAGE
     const storedUserMessage = hasImage
-      ? `[Chart Image]${hasMessage ? ` — ${message.trim()}` : ""}`
+      ? `[Chart Image]${hasMessage ? ` â€” ${message.trim()}` : ""}`
       : message.trim();
 
     // SESSION CACHE
@@ -306,7 +308,7 @@ export async function POST(req: NextRequest) {
         appendToSession(session.sessionId, "assistant", content),
       ]);
     } catch (err) {
-      console.warn("⚠️ Session cache skipped:", err);
+      console.warn("âš ï¸ Session cache skipped:", err);
     }
 
     // MEMORY PIPELINE
@@ -332,7 +334,7 @@ export async function POST(req: NextRequest) {
         ),
       ]);
     } catch (err) {
-      console.warn("⚠️ Memory pipeline skipped:", err);
+      console.warn("âš ï¸ Memory pipeline skipped:", err);
     }
 
     // CHAT LOGGING
@@ -354,12 +356,12 @@ export async function POST(req: NextRequest) {
         },
       ]);
       if (error) {
-        console.error("❌ FETCH ERROR (chat log):", error);
+        console.error("âŒ FETCH ERROR (chat log):", error);
       } else {
-        console.log("✅ FETCH SUCCESS: Chat logged");
+        console.log("âœ… FETCH SUCCESS: Chat logged");
       }
     } catch (err) {
-      console.warn("⚠️ Chat logging failed:", err);
+      console.warn("âš ï¸ Chat logging failed:", err);
     }
 
     // AUTO RESULT UPDATE
@@ -383,15 +385,15 @@ export async function POST(req: NextRequest) {
 
             if (!updateErr) {
               console.log(
-                `🎯 AUTO RESULT UPDATE: ${resultUpdate.pair} → ${resultUpdate.result}`
+                `ðŸŽ¯ AUTO RESULT UPDATE: ${resultUpdate.pair} â†’ ${resultUpdate.result}`
               );
             } else {
-              console.error("❌ RESULT UPDATE ERROR:", updateErr);
+              console.error("âŒ RESULT UPDATE ERROR:", updateErr);
             }
           }
         }
       } catch (err) {
-        console.warn("⚠️ Auto result update failed:", err);
+        console.warn("âš ï¸ Auto result update failed:", err);
       }
     }
 
@@ -415,7 +417,7 @@ export async function POST(req: NextRequest) {
         livePrice
       );
     } catch (err) {
-      console.warn("⚠️ Intelligence card build failed:", err);
+      console.warn("âš ï¸ Intelligence card build failed:", err);
     }
 
     // AUTO TRADE LOGGING
@@ -462,15 +464,15 @@ export async function POST(req: NextRequest) {
           .insert([tradePayload]);
 
         if (tradeErr) {
-          console.error("❌ FETCH ERROR (trade log):", tradeErr);
+          console.error("âŒ FETCH ERROR (trade log):", tradeErr);
         } else {
           console.log(
-            `✅ AUTO TRADE LOGGED: ${tradePayload.pair} | ${tradePayload.bias} | RR: ${tradePayload.rr ?? "—"}`
+            `âœ… AUTO TRADE LOGGED: ${tradePayload.pair} | ${tradePayload.bias} | RR: ${tradePayload.rr ?? "â€”"}`
           );
         }
       }
     } catch (err) {
-      console.warn("⚠️ KVFX trade logging failed:", err);
+      console.warn("âš ï¸ KVFX trade logging failed:", err);
     }
 
     // FALLBACK TRADE MEMORY
@@ -491,7 +493,7 @@ export async function POST(req: NextRequest) {
           tradingMode
         );
       } catch (err) {
-        console.warn("⚠️ Trade log fallback:", err);
+        console.warn("âš ï¸ Trade log fallback:", err);
       }
     }
 
@@ -526,7 +528,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({
-    status: "KVFX Intelligence Engine — Online",
+    status: "KVFX Intelligence Engine â€” Online",
     version: "3.5.0",
     tradingModes: ["scalping", "swing", "macro"],
     assistantModes: ["chat", "chart", "trade-review", "thesis"],
@@ -542,3 +544,4 @@ export async function GET() {
     ],
   });
 }
+
