@@ -35,7 +35,7 @@ export const runtime = "nodejs";
 export const maxDuration = 45;
 
 const VALID_TRADING_MODES = ["scalping", "swing", "macro"];
-const VALID_ASSISTANT_MODES = ["chat", "chart", "trade-review", "thesis"];
+const VALID_ASSISTANT_MODES = ["chat", "chart", "trade-review", "thesis", "macro-engine"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -531,7 +531,7 @@ export async function GET() {
     status: "KVFX Intelligence Engine â€” Online",
     version: "3.5.0",
     tradingModes: ["scalping", "swing", "macro"],
-    assistantModes: ["chat", "chart", "trade-review", "thesis"],
+    assistantModes: ["chat", "chart", "trade-review", "thesis", "macro-engine"],
     capabilities: [
       "text",
       "vision",
