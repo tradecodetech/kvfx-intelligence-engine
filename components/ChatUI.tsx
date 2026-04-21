@@ -109,6 +109,13 @@ const ASSISTANT_MODE_CONFIG: Record<
     activeBorder: "border-violet-500/25",
     activeText: "text-violet-400",
   },
+  "macro-engine": {
+    label: "Macro Engine",
+    hint: "Run the KVFX Macro Engine for live regime scoring and operator brief.",
+    activeBg: "bg-emerald-500/10",
+    activeBorder: "border-emerald-500/25",
+    activeText: "text-emerald-400",
+  },
 };
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "Daily", "Weekly"];
@@ -406,6 +413,313 @@ function MarkdownText({ text }: { text: string }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────
+// MacroEngineCard — structured renderer for macro-engine mode
+// ──────────────────────────────────────────────────────────────
+
+function macroScoreColor(n: number) {
+  if (n >= 7) return "text-emerald-400";
+  if (n >= 5) return "text-[#c9a84c]";
+  return "text-red-400";
+}
+function macroScoreBadge(n: number) {
+  if (n >= 7) return "bg-emerald-500/10 border-emerald-500/25 text-emerald-400";
+  if (n >= 5) return "bg-[#c9a84c]/10 border-[#c9a84c]/25 text-[#c9a84c]";
+  return "bg-red-500/10 border-red-500/25 text-red-400";
+}
+function macroRegimeColor(regime: string) {
+  const r = regime.toUpperCase();
+  if (r.includes("LATE-CYCLE") || r.startsWith("A.")) return "text-[#c9a84c]";
+  if (r.includes("RISK-ON")    || r.startsWith("B.")) return "text-emerald-400";
+  if (r.includes("RECESSION")  || r.startsWith("C.")) return "text-red-400";
+  if (r.includes("COMMODITY")  || r.startsWith("D.")) return "text-orange-400";
+  if (r.includes("SOFT LANDING") || r.startsWith("E.")) return "text-sky-400";
+  return "text-violet-400";
+}
+function macroPairBiasColor(header: string) {
+  const h = header.toUpperCase();
+  if (h.startsWith("BULLISH")) return "text-emerald-400";
+  if (h.startsWith("BEARISH")) return "text-red-400";
+  if (h.startsWith("NEUTRAL")) return "text-gray-400";
+  return "text-[#c9a84c]";
+}
+
+type MacroScoreRow = { label: string; score: number; notes: string[] };
+type MacroSnapRow  = { label: string; value: string };
+type MacroPairRow  = { pair: string; header: string; notes: string[] };
+type MacroTradeRow = { num: number; title: string; lines: string[] };
+
+function parseMacroOutput(raw: string) {
+  const header = { date: "", regime: "", confidence: "" };
+  const secs: Record<string, string[]> = {
+    growth: [], inflation: [], policy: [], snapshot: [],
+    pairbias: [], trades: [], changed: [], invalidation: [],
+    operator: [], war: [], memory: [], sources: [],
+  };
+
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    const dm = t.match(/^Date:\s*(.+)/i);       if (dm) { header.date = dm[1]; }
+    const rm = t.match(/^Regime:\s*(.+)/i);     if (rm) { header.regime = rm[1]; }
+    const cm = t.match(/^Confidence:\s*(.+)/i); if (cm) { header.confidence = cm[1]; }
+  }
+
+  let cur = "";
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t || /^[═─]+$/.test(t))                 continue;
+    if (/^KVFX MACRO ENGINE UPDATE/i.test(t))    continue;
+    if (/^SCORECARD/i.test(t))                   continue;
+    if (/^(Date|Regime|Confidence):/i.test(t))   continue;
+    if (/^GROWTH:/i.test(t))                     { cur = "growth";       continue; }
+    if (/^INFLATION:/i.test(t))                  { cur = "inflation";    continue; }
+    if (/^POLICY STRESS:/i.test(t))              { cur = "policy";       continue; }
+    if (/^MARKET SNAPSHOT:/i.test(t))            { cur = "snapshot";     continue; }
+    if (/^FX LEVELS:/i.test(t))                  { cur = "snapshot";     continue; }
+    if (/^PAIR BIAS:/i.test(t))                  { cur = "pairbias";     continue; }
+    if (/^BEST 3 TRADES/i.test(t))               { cur = "trades";       continue; }
+    if (/^WHAT CHANGED/i.test(t))                { cur = "changed";      continue; }
+    if (/^INVALIDATION RISKS/i.test(t))          { cur = "invalidation"; continue; }
+    if (/^OPERATOR NOTE/i.test(t))               { cur = "operator";     continue; }
+    if (/^WAR\s*\/\s*ENERGY/i.test(t))           { cur = "war";          continue; }
+    if (/^MEMORY UPDATE/i.test(t))               { cur = "memory";       continue; }
+    if (/^Sources:/i.test(t))                    { cur = "sources";      continue; }
+    if (cur) secs[cur].push(line);
+  }
+
+  return { header, secs };
+}
+
+function parseMacroScoreRows(lines: string[]): MacroScoreRow[] {
+  const RE = /^\s*(US|EU|UK|JP|AU|CA|Fed|ECB|BOE|BOJ|RBA|BOC)\s+(\d+)\s*[—\-–]\s*(.*)/;
+  const rows: MacroScoreRow[] = [];
+  let cur: MacroScoreRow | null = null;
+  for (const line of lines) {
+    const m = line.match(RE);
+    if (m) { cur = { label: m[1], score: parseInt(m[2], 10), notes: m[3] ? [m[3].trim()] : [] }; rows.push(cur); }
+    else if (cur && line.trim()) cur.notes.push(line.trim());
+  }
+  return rows;
+}
+
+function parseMacroSnapRows(lines: string[]): MacroSnapRow[] {
+  return lines.filter(l => l.trim().includes(":")).map(l => {
+    const t = l.trim(); const idx = t.indexOf(":");
+    return { label: t.slice(0, idx).trim(), value: t.slice(idx + 1).trim() };
+  });
+}
+
+function parseMacroPairRows(lines: string[]): MacroPairRow[] {
+  const RE = /^\s*(EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NZDUSD):\s*(.*)/i;
+  const rows: MacroPairRow[] = [];
+  let cur: MacroPairRow | null = null;
+  for (const line of lines) {
+    const m = line.match(RE);
+    if (m) { cur = { pair: m[1].toUpperCase(), header: m[2].trim(), notes: [] }; rows.push(cur); }
+    else if (cur && line.trim()) cur.notes.push(line.trim());
+  }
+  return rows;
+}
+
+function parseMacroTradeRows(lines: string[]): MacroTradeRow[] {
+  const RE = /^\s*(\d+)\.\s+(.*)/;
+  const rows: MacroTradeRow[] = [];
+  let cur: MacroTradeRow | null = null;
+  for (const line of lines) {
+    const m = line.match(RE);
+    if (m) { cur = { num: parseInt(m[1], 10), title: m[2].trim(), lines: [] }; rows.push(cur); }
+    else if (cur && line.trim()) cur.lines.push(line.trim());
+  }
+  return rows;
+}
+
+function MacroTextSection({ title, lines, accent = "gray" }: {
+  title: string; lines: string[]; accent?: "gray" | "red" | "orange";
+}) {
+  const titleCls  = accent === "red" ? "text-red-400" : accent === "orange" ? "text-orange-400" : "text-gray-400";
+  const borderCls = accent === "red" ? "border-red-500/20" : accent === "orange" ? "border-orange-500/20" : "border-slate-700";
+  return (
+    <div className={`bg-slate-900 border ${borderCls} rounded-xl overflow-hidden`}>
+      <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
+        <span className={`text-[9px] font-bold uppercase tracking-[0.2em] ${titleCls}`}>{title}</span>
+      </div>
+      <div className="px-4 py-3 space-y-1.5">
+        {lines.map((line, i) => {
+          const t = line.trim();
+          if (!t) return null;
+          const isBullet = t.startsWith("- ") || t.startsWith("• ");
+          return (
+            <div key={i} className="flex gap-2 items-start">
+              {isBullet && <span className="flex-shrink-0 text-gray-600 mt-0.5">·</span>}
+              <p className="text-[10px] text-gray-300 leading-relaxed">{isBullet ? t.replace(/^[-•]\s*/, "") : t}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MacroEngineCard({ content }: { content: string }) {
+  const { header, secs } = parseMacroOutput(content);
+  const growthRows  = parseMacroScoreRows(secs.growth);
+  const inflRows    = parseMacroScoreRows(secs.inflation);
+  const policyRows  = parseMacroScoreRows(secs.policy);
+  const snapRows    = parseMacroSnapRows(secs.snapshot);
+  const pairRows    = parseMacroPairRows(secs.pairbias);
+  const tradeRows   = parseMacroTradeRows(secs.trades);
+  const confNum     = parseInt(header.confidence.match(/\d+/)?.[0] ?? "5", 10);
+  const confBarCls  = confNum >= 7 ? "bg-emerald-500" : confNum >= 5 ? "bg-[#c9a84c]" : "bg-red-500";
+
+  return (
+    <div className="space-y-2.5 font-mono text-xs">
+
+      {/* Header */}
+      <div className="bg-slate-900 border border-emerald-500/20 rounded-xl overflow-hidden">
+        <div className="px-4 py-2 bg-emerald-500/5 border-b border-emerald-500/15 flex items-center justify-between">
+          <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-emerald-400">KVFX MACRO ENGINE UPDATE</span>
+          {header.date && <span className="text-[9px] text-gray-400">{header.date}</span>}
+        </div>
+        <div className="px-4 py-3 space-y-2">
+          {header.regime && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-wider text-gray-500 w-20 flex-shrink-0">Regime</span>
+              <span className={`text-[10px] font-semibold ${macroRegimeColor(header.regime)}`}>{header.regime}</span>
+            </div>
+          )}
+          {header.confidence && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-wider text-gray-500 w-20 flex-shrink-0">Confidence</span>
+              <span className={`text-[10px] font-bold mr-2 ${macroScoreColor(confNum)}`}>{header.confidence}</span>
+              <div className="flex gap-0.5">
+                {Array.from({ length: 10 }, (_, i) => (
+                  <div key={i} className={`w-2 h-1.5 rounded-sm ${i < confNum ? confBarCls : "bg-slate-700"}`} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Scorecard */}
+      {(growthRows.length > 0 || inflRows.length > 0 || policyRows.length > 0) && (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">SCORECARD</span>
+          </div>
+          {[
+            { label: "GROWTH",        rows: growthRows },
+            { label: "INFLATION",     rows: inflRows   },
+            { label: "POLICY STRESS", rows: policyRows },
+          ].filter(s => s.rows.length > 0).map((sub, si) => (
+            <div key={sub.label} className={si > 0 ? "border-t border-slate-800" : ""}>
+              <div className="px-4 pt-2.5 pb-1">
+                <span className="text-[8px] uppercase tracking-[0.18em] text-gray-600">{sub.label}</span>
+              </div>
+              <div className="px-4 pb-3 space-y-2">
+                {sub.rows.map(row => (
+                  <div key={row.label} className="flex gap-3 items-start">
+                    <span className={`flex-shrink-0 text-[10px] font-bold w-8 ${macroScoreColor(row.score)}`}>{row.label}</span>
+                    <span className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center text-[9px] font-bold ${macroScoreBadge(row.score)}`}>{row.score}</span>
+                    <p className="text-[9px] text-gray-300 leading-relaxed">{row.notes.join(" ")}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Market Snapshot */}
+      {snapRows.length > 0 && (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">MARKET SNAPSHOT</span>
+          </div>
+          <div className="px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {snapRows.map(row => (
+              <div key={row.label} className="flex items-baseline gap-2">
+                <span className="text-[9px] uppercase tracking-wider text-gray-500 w-14 flex-shrink-0">{row.label}</span>
+                <span className="text-[9px] text-gray-200">{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pair Bias */}
+      {pairRows.length > 0 && (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">PAIR BIAS</span>
+          </div>
+          <div className="divide-y divide-slate-800">
+            {pairRows.map(row => (
+              <div key={row.pair} className="px-4 py-2.5">
+                <div className="flex items-start gap-3 mb-0.5">
+                  <span className="text-[10px] font-bold text-gray-100 w-16 flex-shrink-0">{row.pair}</span>
+                  <span className={`text-[9px] font-semibold ${macroPairBiasColor(row.header)}`}>{row.header}</span>
+                </div>
+                {row.notes.length > 0 && (
+                  <p className="text-[9px] text-gray-400 leading-relaxed pl-[76px]">{row.notes.join(" ")}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Best 3 Trades */}
+      {tradeRows.length > 0 && (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
+            <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">BEST 3 TRADES</span>
+          </div>
+          <div className="divide-y divide-slate-800">
+            {tradeRows.map(trade => (
+              <div key={trade.num} className="px-4 py-3 flex gap-3">
+                <div className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mt-0.5">
+                  <span className="text-[9px] font-bold text-emerald-400">{trade.num}</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold text-gray-100 mb-1">{trade.title}</p>
+                  {trade.lines.map((l, i) => <p key={i} className="text-[9px] text-gray-400 leading-relaxed">{l}</p>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {secs.changed.length     > 0 && <MacroTextSection title="WHAT CHANGED THIS WEEK" lines={secs.changed} />}
+      {secs.invalidation.length > 0 && <MacroTextSection title="INVALIDATION RISKS" lines={secs.invalidation} accent="red" />}
+
+      {/* Operator Note */}
+      {secs.operator.length > 0 && (
+        <div className="bg-[#c9a84c]/5 border border-[#c9a84c]/20 rounded-xl px-4 py-3">
+          <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#c9a84c] mb-2">OPERATOR NOTE</div>
+          <p className="text-[10px] text-gray-200 leading-relaxed">{secs.operator.map(l => l.trim()).filter(Boolean).join(" ")}</p>
+        </div>
+      )}
+
+      {secs.war.length    > 0 && <MacroTextSection title="WAR / ENERGY IMPACT" lines={secs.war} accent="orange" />}
+      {secs.memory.length > 0 && <MacroTextSection title="MEMORY UPDATE" lines={secs.memory} />}
+
+      {/* Sources */}
+      {secs.sources.length > 0 && (
+        <div className="border-t border-slate-800 pt-2.5">
+          <div className="text-[8px] uppercase tracking-wider text-gray-600 mb-1.5">Sources</div>
+          <div className="space-y-0.5">
+            {secs.sources.map((s, i) => (
+              <p key={i} className="text-[8px] text-gray-500 break-all leading-relaxed">{s.trim().replace(/^-\s*/, "")}</p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   onCopy,
@@ -419,9 +733,11 @@ function MessageBubble({
 }) {
   const isUser = message.role === "user";
   const kvfxParsed = !isUser ? parseKVFXQuickFormat(message.content) : null;
+  const isMacroEngine = !isUser && message.assistantMode === "macro-engine";
   const isStructured =
     !isUser &&
     !kvfxParsed &&
+    !isMacroEngine &&
     message.assistantMode &&
     ["chart", "trade-review", "thesis"].includes(message.assistantMode) &&
     message.content.includes("**");
@@ -463,9 +779,12 @@ function MessageBubble({
               <span className={`text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                 message.assistantMode === "chart" ? "bg-sky-500/10 text-sky-400/70 border-sky-500/20" :
                 message.assistantMode === "trade-review" ? "bg-amber-500/10 text-amber-400/70 border-amber-500/20" :
+                message.assistantMode === "macro-engine" ? "bg-emerald-500/10 text-emerald-400/70 border-emerald-500/20" :
                 "bg-violet-500/10 text-violet-400/70 border-violet-500/20"
               }`}>
-                {message.assistantMode === "trade-review" ? "Trade Review" : message.assistantMode}
+                {message.assistantMode === "trade-review" ? "Trade Review" :
+                 message.assistantMode === "macro-engine" ? "Macro Engine" :
+                 message.assistantMode}
               </span>
             )}
           </div>
@@ -503,7 +822,9 @@ function MessageBubble({
         </div>
 
         <div className="px-4 py-3.5">
-          {kvfxParsed ? (
+          {isMacroEngine ? (
+            <MacroEngineCard content={message.content} />
+          ) : kvfxParsed ? (
             <KVFXQuickCard data={kvfxParsed.data} rest={kvfxParsed.rest} />
           ) : isStructured ? (
             <MarkdownText text={message.content} />
@@ -659,6 +980,11 @@ function EmptyState({ assistantMode }: { assistantMode: AssistantMode }) {
       title: "Thesis Mode",
       subs: ["Set your macro thesis first", "Then describe a setup", "Get thesis-aligned analysis"],
     },
+    "macro-engine": {
+      icon: "◎",
+      title: "Macro Engine Mode",
+      subs: ["Run live regime scoring across all regions", "Get scorecard + pair bias map", "Receive operator brief with best 3 trades"],
+    },
   };
   const h = hints[assistantMode as Exclude<AssistantMode, "chat">];
   return (
@@ -762,6 +1088,7 @@ function SavedPanel({ analyses, onClose, onDelete }: { analyses: SavedAnalysis[]
                     a.mode === "chart" ? "text-sky-400/80 bg-sky-500/10 border-sky-500/20" :
                     a.mode === "trade-review" ? "text-amber-400/80 bg-amber-500/10 border-amber-500/20" :
                     a.mode === "thesis" ? "text-violet-400/80 bg-violet-500/10 border-violet-500/20" :
+                    a.mode === "macro-engine" ? "text-emerald-400/80 bg-emerald-500/10 border-emerald-500/20" :
                     "text-gray-400 bg-slate-700 border-slate-600"
                   }`}>{a.mode}</span>
                   <span className="text-[8px] text-gray-500 font-mono uppercase">{a.tradingMode}</span>
@@ -1269,6 +1596,7 @@ export default function ChatUI({ userEmail = "", userId: _userId = "", userTier 
                         assistantMode === "chart" ? "Describe the chart, or upload an image above..." :
                         assistantMode === "trade-review" ? "Describe your trade setup, or use the Plan button..." :
                         assistantMode === "thesis" ? "Ask how your setup aligns with your active thesis..." :
+                        assistantMode === "macro-engine" ? "Type 'run macro scan' or ask for regime update, scorecard, or pair bias..." :
                         "Describe your setup, ask a question, or analyze market context..."
                       }
                       rows={1}
