@@ -507,17 +507,26 @@ function parseMacroScoreRows(lines: string[]): MacroScoreRow[] {
   return rows;
 }
 
+const SNAP_LABELS = /^(DXY|US10Y|US2Y|US10|US2|WTI|BRENT|CRUDE|OIL|GOLD|XAU|SPX|S&P|NASDAQ|NDX|VIX|EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NZDUSD|BTC|ETH)\b/i;
+
 function parseMacroSnapRows(lines: string[]): MacroSnapRow[] {
-  return lines
-    .filter(l => {
-      const t = l.trim();
-      return t.includes(":") && !/^\s*[-•]/.test(t) && t.indexOf(":") < 12;
-    })
-    .map(l => {
-      const t = l.trim(); const idx = t.indexOf(":");
-      return { label: t.slice(0, idx).trim(), value: t.slice(idx + 1).trim() };
-    })
-    .filter(r => r.label.length > 0 && r.value.length > 0);
+  const rows: MacroSnapRow[] = [];
+  let pendingLabel = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes(":") && SNAP_LABELS.test(trimmed)) {
+      const idx = trimmed.indexOf(":");
+      const label = trimmed.slice(0, idx).trim();
+      const value = trimmed.slice(idx + 1).trim();
+      if (value) { rows.push({ label, value }); pendingLabel = ""; }
+      else { pendingLabel = label; }
+    } else if (pendingLabel && trimmed && !SNAP_LABELS.test(trimmed)) {
+      rows.push({ label: pendingLabel, value: trimmed });
+      pendingLabel = "";
+    }
+  }
+  return rows;
 }
 
 function parseMacroPairRows(lines: string[]): MacroPairRow[] {
@@ -533,13 +542,34 @@ function parseMacroPairRows(lines: string[]): MacroPairRow[] {
 }
 
 function parseMacroTradeRows(lines: string[]): MacroTradeRow[] {
-  const RE = /^\s*(\d+)\.\s+(.*)/;
+  // Accept: "1. TEXT", "1) TEXT", "**1.** TEXT", "1 - TEXT"
+  const RE = /^\s*(?:\**)(\d+)(?:\**)[.)]\s+\**(.*)/;
   const rows: MacroTradeRow[] = [];
   let cur: MacroTradeRow | null = null;
+  let autoNum = 0;
   for (const line of lines) {
-    const m = line.match(RE);
-    if (m) { cur = { num: parseInt(m[1], 10), title: m[2].trim(), lines: [] }; rows.push(cur); }
-    else if (cur && line.trim()) cur.lines.push(line.trim());
+    const trimmed = line.trim();
+    const m = trimmed.match(RE);
+    if (m) {
+      autoNum = parseInt(m[1], 10);
+      cur = { num: autoNum, title: m[2].replace(/\*+/g, "").trim(), lines: [] };
+      rows.push(cur);
+    } else if (!cur && trimmed.startsWith("- ") && rows.length === 0) {
+      // Fallback: un-numbered bullet list format
+      autoNum++;
+      cur = { num: autoNum, title: trimmed.replace(/^-\s*/, ""), lines: [] };
+      rows.push(cur);
+    } else if (cur && trimmed) {
+      // New top-level item check (starts a new trade entry if it looks like a trade title)
+      const isTradeLine = /^(LONG|SHORT|BUY|SELL)\s+(EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NZDUSD)/i.test(trimmed);
+      if (isTradeLine && cur.lines.length > 0) {
+        autoNum++;
+        cur = { num: autoNum, title: trimmed, lines: [] };
+        rows.push(cur);
+      } else {
+        cur.lines.push(trimmed);
+      }
+    }
   }
   return rows;
 }
@@ -612,28 +642,30 @@ function MacroEngineCard({ content }: { content: string }) {
         </div>
       </div>
 
-      {/* Scorecard */}
-      {(growthRows.length > 0 || inflRows.length > 0 || policyRows.length > 0) && (
+      {/* Scorecard — structured rows or raw text fallback */}
+      {(secs.growth.length > 0 || secs.inflation.length > 0 || secs.policy.length > 0) && (
         <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
           <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
             <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">SCORECARD</span>
           </div>
           {[
-            { label: "GROWTH",        rows: growthRows },
-            { label: "INFLATION",     rows: inflRows   },
-            { label: "POLICY STRESS", rows: policyRows },
-          ].filter(s => s.rows.length > 0).map((sub, si) => (
+            { label: "GROWTH",        rows: growthRows, raw: secs.growth   },
+            { label: "INFLATION",     rows: inflRows,   raw: secs.inflation },
+            { label: "POLICY STRESS", rows: policyRows, raw: secs.policy   },
+          ].filter(s => s.raw.length > 0).map((sub, si) => (
             <div key={sub.label} className={si > 0 ? "border-t border-slate-800" : ""}>
               <div className="px-4 pt-2.5 pb-1">
                 <span className="text-[8px] uppercase tracking-[0.18em] text-gray-600">{sub.label}</span>
               </div>
               <div className="px-4 pb-3 space-y-2">
-                {sub.rows.map(row => (
+                {sub.rows.length > 0 ? sub.rows.map(row => (
                   <div key={row.label} className="flex gap-3 items-start">
                     <span className={`flex-shrink-0 text-[10px] font-bold w-8 ${macroScoreColor(row.score)}`}>{row.label}</span>
                     <span className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center text-[9px] font-bold ${macroScoreBadge(row.score)}`}>{row.score}</span>
                     <p className="text-[9px] text-gray-300 leading-relaxed">{row.notes.join(" ")}</p>
                   </div>
+                )) : sub.raw.filter(l => l.trim()).map((l, i) => (
+                  <p key={i} className="text-[9px] text-gray-300 leading-relaxed font-mono">{l.trim()}</p>
                 ))}
               </div>
             </div>
@@ -641,64 +673,88 @@ function MacroEngineCard({ content }: { content: string }) {
         </div>
       )}
 
-      {/* Market Snapshot */}
-      {snapRows.length > 0 && (
+      {/* Market Snapshot — structured rows or raw text fallback */}
+      {secs.snapshot.length > 0 && (
         <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
           <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
             <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">MARKET SNAPSHOT</span>
           </div>
-          <div className="px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-            {snapRows.map(row => (
-              <div key={row.label} className="flex items-baseline gap-2">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 w-14 flex-shrink-0">{row.label}</span>
-                <span className="text-[9px] text-gray-200">{row.value}</span>
-              </div>
-            ))}
-          </div>
+          {snapRows.length > 0 ? (
+            <div className="px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+              {snapRows.map(row => (
+                <div key={row.label} className="flex items-baseline gap-2">
+                  <span className="text-[9px] uppercase tracking-wider text-gray-500 w-14 flex-shrink-0">{row.label}</span>
+                  <span className="text-[9px] text-gray-200">{row.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-4 py-3 space-y-1">
+              {secs.snapshot.filter(l => l.trim()).map((l, i) => (
+                <p key={i} className="text-[9px] text-gray-300 font-mono leading-relaxed">{l.trim()}</p>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Pair Bias */}
-      {pairRows.length > 0 && (
+      {/* Pair Bias — structured or raw fallback */}
+      {secs.pairbias.length > 0 && (
         <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
           <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
             <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">PAIR BIAS</span>
           </div>
-          <div className="divide-y divide-slate-800">
-            {pairRows.map(row => (
-              <div key={row.pair} className="px-4 py-2.5">
-                <div className="flex items-start gap-3 mb-0.5">
-                  <span className="text-[10px] font-bold text-gray-100 w-16 flex-shrink-0">{row.pair}</span>
-                  <span className={`text-[9px] font-semibold ${macroPairBiasColor(row.header)}`}>{row.header}</span>
+          {pairRows.length > 0 ? (
+            <div className="divide-y divide-slate-800">
+              {pairRows.map(row => (
+                <div key={row.pair} className="px-4 py-2.5">
+                  <div className="flex items-start gap-3 mb-0.5">
+                    <span className="text-[10px] font-bold text-gray-100 w-16 flex-shrink-0">{row.pair}</span>
+                    <span className={`text-[9px] font-semibold ${macroPairBiasColor(row.header)}`}>{row.header}</span>
+                  </div>
+                  {row.notes.length > 0 && (
+                    <p className="text-[9px] text-gray-400 leading-relaxed pl-[76px]">{row.notes.join(" ")}</p>
+                  )}
                 </div>
-                {row.notes.length > 0 && (
-                  <p className="text-[9px] text-gray-400 leading-relaxed pl-[76px]">{row.notes.join(" ")}</p>
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-4 py-3 space-y-1">
+              {secs.pairbias.filter(l => l.trim()).map((l, i) => (
+                <p key={i} className="text-[9px] text-gray-300 font-mono leading-relaxed">{l.trim()}</p>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Best 3 Trades */}
-      {tradeRows.length > 0 && (
+      {/* Best 3 Trades — structured or raw fallback */}
+      {secs.trades.length > 0 && (
         <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
           <div className="px-4 py-2 border-b border-slate-700 bg-slate-800/60">
             <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-400">BEST 3 TRADES</span>
           </div>
-          <div className="divide-y divide-slate-800">
-            {tradeRows.map(trade => (
-              <div key={trade.num} className="px-4 py-3 flex gap-3">
-                <div className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mt-0.5">
-                  <span className="text-[9px] font-bold text-emerald-400">{trade.num}</span>
+          {tradeRows.length > 0 ? (
+            <div className="divide-y divide-slate-800">
+              {tradeRows.map((trade, ti) => (
+                <div key={`${trade.num}-${ti}`} className="px-4 py-3 flex gap-3">
+                  <div className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mt-0.5">
+                    <span className="text-[9px] font-bold text-emerald-400">{trade.num}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold text-gray-100 mb-1">{trade.title}</p>
+                    {trade.lines.map((l, i) => <p key={i} className="text-[9px] text-gray-400 leading-relaxed">{l}</p>)}
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold text-gray-100 mb-1">{trade.title}</p>
-                  {trade.lines.map((l, i) => <p key={i} className="text-[9px] text-gray-400 leading-relaxed">{l}</p>)}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-4 py-3 space-y-1">
+              {secs.trades.filter(l => l.trim()).map((l, i) => (
+                <p key={i} className="text-[9px] text-gray-300 font-mono leading-relaxed">{l.trim()}</p>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
