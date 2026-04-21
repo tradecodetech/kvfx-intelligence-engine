@@ -467,23 +467,23 @@ function parseMacroOutput(raw: string) {
   let cur = "";
   for (const line of raw.split("\n")) {
     const t = line.trim();
-    if (!t || /^[═─]+$/.test(t))                 continue;
+    if (!t || /^[═─━\-]{4,}$/.test(t))           continue;
     if (/^KVFX MACRO ENGINE UPDATE/i.test(t))    continue;
     if (/^SCORECARD/i.test(t))                   continue;
     if (/^(Date|Regime|Confidence):/i.test(t))   continue;
-    if (/^GROWTH:/i.test(t))                     { cur = "growth";       continue; }
-    if (/^INFLATION:/i.test(t))                  { cur = "inflation";    continue; }
-    if (/^POLICY STRESS:/i.test(t))              { cur = "policy";       continue; }
-    if (/^MARKET SNAPSHOT:/i.test(t))            { cur = "snapshot";     continue; }
-    if (/^FX LEVELS:/i.test(t))                  { cur = "snapshot";     continue; }
-    if (/^PAIR BIAS:/i.test(t))                  { cur = "pairbias";     continue; }
+    if (/^GROWTH:?$/i.test(t))                   { cur = "growth";       continue; }
+    if (/^INFLATION:?$/i.test(t))                { cur = "inflation";    continue; }
+    if (/^POLICY STRESS:?$/i.test(t))            { cur = "policy";       continue; }
+    if (/^MARKET SNAPSHOT:?$/i.test(t))          { cur = "snapshot";     continue; }
+    if (/^FX LEVELS:?$/i.test(t))                { cur = "snapshot";     continue; }
+    if (/^PAIR BIAS:?$/i.test(t))                { cur = "pairbias";     continue; }
     if (/^BEST 3 TRADES/i.test(t))               { cur = "trades";       continue; }
     if (/^WHAT CHANGED/i.test(t))                { cur = "changed";      continue; }
     if (/^INVALIDATION RISKS/i.test(t))          { cur = "invalidation"; continue; }
     if (/^OPERATOR NOTE/i.test(t))               { cur = "operator";     continue; }
-    if (/^WAR\s*\/\s*ENERGY/i.test(t))           { cur = "war";          continue; }
+    if (/^WAR\s*[\\/]\s*ENERGY/i.test(t))        { cur = "war";          continue; }
     if (/^MEMORY UPDATE/i.test(t))               { cur = "memory";       continue; }
-    if (/^Sources:/i.test(t))                    { cur = "sources";      continue; }
+    if (/^Sources:?/i.test(t))                   { cur = "sources";      continue; }
     if (cur) secs[cur].push(line);
   }
 
@@ -491,26 +491,37 @@ function parseMacroOutput(raw: string) {
 }
 
 function parseMacroScoreRows(lines: string[]): MacroScoreRow[] {
-  const RE = /^\s*(US|EU|UK|JP|AU|CA|Fed|ECB|BOE|BOJ|RBA|BOC)\s+(\d+)\s*[—\-–]\s*(.*)/;
+  // Matches: "US 5", "US  5  — notes", "Fed  7  — notes", "US: 5"
+  const RE = /^\s*(US|EU|UK|JP|AU|CA|Fed|ECB|BOE|BOJ|RBA|BOC):?\s+(\d+)(?:\s*[—\-–]\s*(.*))?/;
   const rows: MacroScoreRow[] = [];
   let cur: MacroScoreRow | null = null;
   for (const line of lines) {
     const m = line.match(RE);
-    if (m) { cur = { label: m[1], score: parseInt(m[2], 10), notes: m[3] ? [m[3].trim()] : [] }; rows.push(cur); }
-    else if (cur && line.trim()) cur.notes.push(line.trim());
+    if (m) {
+      cur = { label: m[1], score: parseInt(m[2], 10), notes: m[3]?.trim() ? [m[3].trim()] : [] };
+      rows.push(cur);
+    } else if (cur && line.trim() && !/^\s*(US|EU|UK|JP|AU|CA|Fed|ECB|BOE|BOJ|RBA|BOC)/i.test(line)) {
+      cur.notes.push(line.trim());
+    }
   }
   return rows;
 }
 
 function parseMacroSnapRows(lines: string[]): MacroSnapRow[] {
-  return lines.filter(l => l.trim().includes(":")).map(l => {
-    const t = l.trim(); const idx = t.indexOf(":");
-    return { label: t.slice(0, idx).trim(), value: t.slice(idx + 1).trim() };
-  });
+  return lines
+    .filter(l => {
+      const t = l.trim();
+      return t.includes(":") && !/^\s*[-•]/.test(t) && t.indexOf(":") < 12;
+    })
+    .map(l => {
+      const t = l.trim(); const idx = t.indexOf(":");
+      return { label: t.slice(0, idx).trim(), value: t.slice(idx + 1).trim() };
+    })
+    .filter(r => r.label.length > 0 && r.value.length > 0);
 }
 
 function parseMacroPairRows(lines: string[]): MacroPairRow[] {
-  const RE = /^\s*(EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NZDUSD):\s*(.*)/i;
+  const RE = /^\s*(EURUSD|GBPUSD|USDJPY|AUDUSD|USDCAD|USDCHF|NZDUSD)[:\s]+\s*(.*)/i;
   const rows: MacroPairRow[] = [];
   let cur: MacroPairRow | null = null;
   for (const line of lines) {
