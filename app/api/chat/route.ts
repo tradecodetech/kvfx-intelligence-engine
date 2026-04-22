@@ -30,6 +30,7 @@ import { fetchLivePrice, fetchLivePricesForScan } from "@/lib/priceApi";
 import { getScanPairsForTier } from "@/lib/tierConfig";
 import { detectPair } from "@/lib/tradeParser";
 import { createClient as createSupabaseServer } from "@/lib/supabase/server";
+import { fetchMarketSnapshot, buildMarketDataBlock } from "@/lib/marketData";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -262,6 +263,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // MACRO ENGINE — fetch live market data from Yahoo Finance
+    let liveMarketData: string | null = null;
+    if (assistantMode === "macro-engine") {
+      try {
+        const snapshot = await fetchMarketSnapshot();
+        if (snapshot) liveMarketData = buildMarketDataBlock(snapshot);
+      } catch (err) {
+        console.warn("⚠️ Market data fetch failed:", err);
+      }
+    }
+
     // AI RESPONSE
     const { content, insight } = await generateChatResponse({
       message: message.trim(),
@@ -279,6 +291,7 @@ export async function POST(req: NextRequest) {
       livePrice: preLivePrice,
       detectedPair: prePair,
       liveChartContext: liveChartContext || null,
+      liveMarketData,
     });
 
     // BETA LOGGING

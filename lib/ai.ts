@@ -138,6 +138,7 @@ export interface ChatRequestContext {
   livePrice?: number | null;
   detectedPair?: string | null;
   liveChartContext?: string | null;
+  liveMarketData?: string | null;
 }
 
 export interface AIResponse {
@@ -165,6 +166,7 @@ export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIR
     livePrice,
     detectedPair,
     liveChartContext,
+    liveMarketData,
   } = ctx;
 
   // â”€â”€ Scan mode: structured output, no insight decoration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -211,6 +213,7 @@ export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIR
     memoryContext ? `\n[RELEVANT PAST CONTEXT FROM MEMORY]\n${memoryContext}` : "",
     livePriceBlock ? `\n${livePriceBlock}` : "",
     liveChartContext ? `\n${liveChartContext}` : "",
+    liveMarketData ? `\n${liveMarketData}` : "",
     `\n${kvfxContext}`,
   ].filter(Boolean);
 
