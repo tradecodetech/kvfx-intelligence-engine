@@ -237,7 +237,7 @@ export async function generateChatResponse(ctx: ChatRequestContext): Promise<AIR
     model: "gpt-4o", // gpt-4o supports vision natively
     messages,
     temperature: assistantMode === "chat" ? 0.5 : 0.35,
-    max_tokens: assistantMode === "chart" || assistantMode === "trade-review" ? 1000 : 800,
+    max_tokens: assistantMode === "macro-engine" ? 4000 : assistantMode === "chart" || assistantMode === "trade-review" ? 1000 : 800,
     presence_penalty: 0.1,
     frequency_penalty: 0.1,
   });

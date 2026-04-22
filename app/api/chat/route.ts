@@ -404,9 +404,9 @@ export async function POST(req: NextRequest) {
 
     const livePrice = preLivePrice;
 
-    // BUILD INTELLIGENCE CARD
+    // BUILD INTELLIGENCE CARD (skip for macro-engine — it has its own renderer)
     let intelligenceCard = null;
-    try {
+    if (assistantMode !== "macro-engine") try {
       intelligenceCard = buildIntelligenceCard(
         message,
         content,
